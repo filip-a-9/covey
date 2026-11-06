@@ -61,7 +61,7 @@ What the viewer should feel: the agents were already there, they just couldn't s
 | Card | The agent's self-description: name, kind, workdir, summary, capabilities offered, tags, liveness, how to reach it | Owned by the agent; re-published on every register or heartbeat |
 | Capability | One named thing an agent offers (`explain`, `search`, `edit`, `run_tests`, `shell`) with a sensitivity level: `open`, `gated`, or `forbidden` | Declared in the card |
 | Request | One unit of delegated work: who asked, who was asked, the task, which capability it invokes, status, result | `request_id`: ULID; lives in SQLite forever |
-| Grant | Permission for requester X to invoke gated capability Y on agent Z: `once`, `session`, `always`, or `deny` | Keyed on (requester, target, capability) |
+| Grant | Permission for requester X to invoke gated capability Y on agent Z: `once`, `session`, `always`, or `deny` | `grant_id`: ULID; at most one grant per (requester, target, capability) |
 | Thread | An ordered chain of requests and replies between two agents about one topic | `thread_id`; a reply inherits its parent's thread |
 
 **Agents, not sessions, are the unit of identity.** A Claude Code session in `~/code/api` registers as agent `api`. If that session exits and a new one starts in the same directory, it is the same agent `api` again (the slug is derived from the directory unless overridden). This matters because other agents' grants and threads are addressed to `api`, and they should survive a restart. Liveness is a separate property of the card: `live` (an interactive session is attached), `wakeable` (nobody is attached but the daemon knows how to spawn a headless worker in that workdir), or `gone`.
@@ -96,7 +96,7 @@ ARCHITECTURE (one machine)
 
 Agents reach the daemon through MCP (Claude Code, OpenClaw, Cursor) or plain HTTP (the Python SDK); the daemon spawns headless workers when an agent is needed but no session is attached; the human watches through the CLI and TUI and answers approval prompts. Dashed parts are v2.
 
-**The MCP door is a thin shim.** Claude Code launches MCP servers as subprocesses over stdio. If each of those subprocesses *were* the daemon, every session would have its own private mesh, which defeats the point. So `covey mcp` is a tiny stdio process that forwards JSON-RPC to the single long-running `coveyd` over a unix socket (`~/.covey/covey.sock`), and starts `coveyd` if it is not running. The shim is also where the agent's identity is attached: it reads the current working directory and an optional `COVEY_AGENT` env var, and registers the session as that agent on connect.
+**The MCP door is a thin shim.** Claude Code launches MCP servers as subprocesses over stdio. If each of those subprocesses *were* the daemon, every session would have its own private mesh, which defeats the point. So `covey mcp` is a tiny stdio process that forwards JSON-RPC to the single long-running `coveyd` over a unix socket (`~/.covey/covey.sock`), and starts `coveyd` if it is not running. The shim is also where the agent's identity is attached: it reads the current working directory and an optional `COVEY_AGENT` env var, and registers the session as that agent on connect, authenticating with the join token and keeping the agent token the daemon returns in memory.
 
 **The HTTP door is the same API without MCP framing.** Everything the MCP tools can do maps one-to-one onto `POST /v1/...` endpoints on `127.0.0.1:7777`. The Python SDK, the CLI and the TUI all use it. This keeps MCP from leaking into the core and makes the daemon testable with `curl`.
 
@@ -117,7 +117,7 @@ Agents reach the daemon through MCP (Claude Code, OpenClaw, Cursor) or plain HTT
 | `covey_wait` | `request_id`, `timeout_s` (max 600) | final status + result, or `pending` | Right after `covey_ask` when the answer is needed to continue |
 | `covey_inbox` | optional `status` | requests addressed to this agent, oldest first | At the start of a turn, or when the Stop hook says there is work waiting |
 | `covey_reply` | `request_id`, `result`, `status` (`done`, `failed`, `needs_input`), optional `artifacts[]` | ack | To answer a request it picked up from the inbox |
-| `covey_grant` | `requester`, `capability`, `scope` (`once`, `session`, `always`, `deny`) | grant record | Only the `human` pseudo-agent and the CLI may call this; agents cannot grant themselves anything |
+| `covey_grant` | `requester`, `capability`, `scope` (`once`, `session`, `always`, `deny`) | always an error with a next step | Never succeeds over MCP, because every MCP caller is an agent and agents cannot grant themselves anything. It refuses with *"Grants need the human. Ask them to run `covey approve <request_id>` or `covey grant ...`."* The tool keeps its name because the nine tool names are public API |
 | `covey_log` | optional `thread_id`, `agent`, `since`, `limit` | past requests and replies | To read how a previous exchange went before continuing it |
 
 **Tool descriptions are opinionated.** Example for `covey_find`: *"Find another agent on this machine who already knows about something, before you explore it yourself. Returns agents ranked by how well their card matches your need. If one matches, prefer `covey_ask` over reading their repo directly: they have context you do not."* This single sentence is what turns a passive registry into agents actually collaborating.
@@ -126,7 +126,7 @@ Agents reach the daemon through MCP (Claude Code, OpenClaw, Cursor) or plain HTT
 
 **Resources, not only tools.** The MCP server also exposes two resources: `covey://peers` (all live and wakeable cards as a Markdown table) and `covey://inbox` (this agent's pending requests). Clients that pre-load resources into context see the mesh without a tool call.
 
-**Everything is scoped to the caller.** The shim attaches `agent_id` to every call, so `covey_inbox` and `covey_reply` cannot be used on another agent's behalf. There is no "admin" tool surface over MCP; administration is the CLI and the HTTP API with a local token.
+**Everything is scoped to the caller.** The shim attaches `agent_id` to every call, so `covey_inbox` and `covey_reply` cannot be used on another agent's behalf. There is no "admin" tool surface over MCP; administration is the CLI and the TUI, using the human token over the unix socket.
 
 ## Delivery: how an idle agent receives work
 
@@ -174,6 +174,13 @@ A live session gets the request at its next quiet moment through hooks; an agent
 
 **v1 rule: every capability has a sensitivity level, gated ones need a grant, and only the human can create grants.** No cryptography in v1; the threat model is "agents on a machine I own making mistakes or being prompt-injected," not "a hostile peer on the network." The data model leaves room for signed identities when v2 crosses machines.
 
+**Covey defends against agent mistakes and prompt injection, not against a hostile process running as the same user.** Such a process can already read the user's files and drive the user's terminal; no local daemon can stop it. What Covey must stop is the realistic failure: an agent, possibly fed hostile text, using its own shell to approve its own requests. Two speed bumps do that:
+
+- **Human-only operations are accepted only over the unix socket** (`~/.covey/covey.sock`, mode 0600). Over TCP they answer `403` with an error telling the caller to use the `covey` CLI. Human-only means creating or deleting grants, answering approvals, and anything else that acts as `human@<node>`.
+- **The daemon checks who is on the other end of the socket.** It reads the peer's process id from the socket (`SO_PEERCRED` on Linux, `LOCAL_PEERPID` on macOS), walks the process ancestry, and refuses a human-token call when any ancestor is a registered agent session. An agent that shells out to `covey approve` is therefore refused, while the same command typed by the human in their own terminal works.
+
+These are speed bumps, not a security boundary, and the docs say so plainly.
+
 | Level | Meaning | Examples | What happens on `covey_ask` |
 | --- | --- | --- | --- |
 | `open` | Read-only or advisory; the target can refuse but nothing is at stake | `explain`, `search`, `summarize`, `review` | Delivered immediately |
@@ -198,7 +205,8 @@ A live session gets the request at its next quiet moment through hooks; an agent
 
 ```json
 {
-  "agent_id": "api@01JC3Z8K2M",
+  "covey": "1",
+  "agent_id": "api@01JC3Z8K2M4N5P6Q7R8S9T0V1W",
   "slug": "api",
   "kind": "claude-code",
   "workdir": "/home/you/code/api",
@@ -224,12 +232,12 @@ A live session gets the request at its next quiet moment through hooks; an agent
 | Table | Key columns | Notes |
 | --- | --- | --- |
 | `nodes` | `node_id`, `name`, `created_at` | One row in v1; v2 adds peers with `address`, `public_key`, `trust` |
-| `agents` | `agent_id`, `slug`, `node_id`, `card` (JSON), `liveness`, `last_seen`, `public_key` | Card stored whole as JSON; indexed columns are copied out for queries |
-| `requests` | `request_id`, `thread_id`, `from_agent`, `to_agent`, `capability`, `task`, `context`, `status`, `result`, `artifacts`, `hops`, `created_at`, `updated_at`, `deadline` | Status enum: `queued`, `awaiting_grant`, `delivered`, `working`, `needs_input`, `done`, `failed`, `refused`, `expired` |
-| `grants` | `requester`, `target`, `capability`, `scope`, `created_by`, `created_at`, `expires_at` | Unique on (requester, target, capability); `once` rows are deleted on use |
+| `agents` | `agent_id`, `slug`, `node_id`, `card` (JSON), `liveness`, `last_seen`, `session_id`, `token_hash`, `public_key` | Card stored whole as JSON; indexed columns are copied out for queries. `session_id` is the attached live session, if any; `token_hash` is the hash of the agent's current token. The human pseudo-agent is a row here too |
+| `requests` | `request_id`, `thread_id`, `parent_id`, `from_agent`, `to_agent`, `capability`, `task`, `context`, `status`, `result`, `artifacts`, `hops`, `stop_blocked_at`, `created_at`, `updated_at`, `deadline` | Status enum: `queued`, `awaiting_grant`, `delivered`, `working`, `needs_input`, `done`, `failed`, `refused`, `expired`. `parent_id` links a follow-up to the request it continues, which is how threads and `hops` are inherited. `stop_blocked_at` records when the Stop hook last blocked for this request, so it blocks at most once |
+| `grants` | `grant_id`, `requester`, `target`, `capability`, `scope`, `session_id`, `created_by`, `created_at`, `expires_at` | `grant_id` is a ULID, used by `covey revoke` and `DELETE /v1/grants/{id}`. Unique on (requester, target, capability); `once` rows are deleted on use; `session` rows record the target's `session_id` and stop matching when that session ends |
 | `audit` | `id`, `ts`, `actor`, `event`, `subject`, `detail` (JSON) | Append-only; `covey log` reads from here plus `requests` |
 
-**HTTP API** on `127.0.0.1:7777`, JSON in and out, bearer token from `~/.covey/token` (created on first run, mode 0600) on every call so another local user cannot drive your agents:
+**HTTP API** on the unix socket `~/.covey/covey.sock` and on `127.0.0.1:7777`, JSON in and out, a bearer token on every call so another local user cannot drive your agents (see the three kinds of token below). Endpoints marked *human* need the human token and are accepted only over the unix socket:
 
 | Method & path | Purpose |
 | --- | --- |
@@ -240,12 +248,23 @@ A live session gets the request at its next quiet moment through hooks; an agent
 | `GET /v1/requests/{id}?wait=30` | Long-poll a request's status (`covey_wait`) |
 | `GET /v1/agents/{slug}/inbox` | Pending requests for one agent |
 | `POST /v1/requests/{id}/reply` | Deliver a result |
-| `GET /v1/grants`, `POST /v1/grants`, `DELETE /v1/grants/{id}` | Grant management; `POST` requires the human token, not an agent token |
-| `GET /v1/approvals?wait=30` | Long-poll for pending approval prompts; what the TUI subscribes to |
+| `GET /v1/grants`, `POST /v1/grants`, `DELETE /v1/grants/{id}` | Grant management; `POST` and `DELETE` are *human* |
+| `GET /v1/approvals?wait=30` | Long-poll for pending approval prompts; what the TUI subscribes to. An approval is a request in `awaiting_grant`, identified by its `request_id` |
+| `POST /v1/approvals/{request_id}` | Answer an approval with a scope (`once`, `session`, `always`, `deny`); *human*. What `covey approve`, `covey deny` and the TUI call |
+| `PUT /v1/agents/{slug}/card` | Update the descriptive parts of a card (`covey_describe`, `covey describe`); an agent may update only its own card |
+| `GET /v1/whoami` | The caller's own card, node id and liveness (`covey_whoami`) |
 | `GET /v1/log?thread=...&since=...` | Audit and transcript queries |
 | `GET /v1/events` | Server-sent events stream of everything above; the TUI's live feed |
 
-**Two kinds of token.** Agents get a per-agent token minted by the shim at registration and tied to their `agent_id`; it cannot call grant endpoints. The human token (`~/.covey/token`) can do everything. This is the whole of v1 authentication, and it is enough for one trusted machine.
+**Three kinds of token.** This is the whole of v1 authentication.
+
+| Token | Where it lives | What it can do |
+| --- | --- | --- |
+| Human | `~/.covey/token`, created on first run, mode 0600 | Everything, but only over the unix socket and only when the ancestry check passes |
+| Join | `~/.covey/join-token`, created on first run, mode 0600 | Register an agent and heartbeat it; nothing else |
+| Agent | Minted by the daemon when an agent registers, returned once, kept in the shim's memory; the daemon stores only its hash | Act as that one agent: find, ask, wait, read its own inbox, reply, describe its own card. Never grant endpoints |
+
+A slug can be taken over by a new registration only when its current holder is not `live`; registering a slug that is live is refused, so one session cannot impersonate another that is running. Re-registering mints a new agent token and invalidates the old one.
 
 **Ranking for discovery, v1:** score = 3 × (capability name match) + 2 × (tag overlap) + 1 × (BM25-ish token overlap on summary) + 1 × (overlap with the agent's last 20 request topics) + liveness bonus (`live` 2, `wakeable` 1, `gone` excluded). Return the top `limit` with a one-line `why` string. Deterministic, no model call, good enough for a dozen agents on one machine; improve later without touching the API.
 
@@ -253,7 +272,7 @@ A live session gets the request at its next quiet moment through hooks; an agent
 
 ## Human interface: CLI + TUI
 
-**The CLI is for setup and scripting; the TUI (`covey top`) is the thing people screenshot.** Both talk to the daemon over the HTTP API with the human token, so they work even if the daemon was started by a shim from some other terminal.
+**The CLI is for setup and scripting; the TUI (`covey top`) is the thing people screenshot.** Both talk to the daemon over the HTTP API on the unix socket with the human token, so they work even if the daemon was started by a shim from some other terminal.
 
 **CLI surface, v1** (Typer; every command has `--json`):
 
@@ -419,7 +438,7 @@ Core first because everything else is a client of it; the shim and hooks start o
 | Anthropic ships first-party multi-session coordination in Claude Code | Medium | Covey's value is cross-tool and cross-machine (OpenClaw, Cursor, Python, LAN) plus permissions and audit; lean into "works with everything" from day one so a first-party feature is a complement, not a replacement |
 | Delegated requests become a prompt-injection channel between agents | High in principle, low in a single-user setup | Framed delivery, forbidden capabilities, grant re-check at reply time, audit log; say so loudly in the README so the first security comment on HN is answered before it is asked |
 | Agents over-use `covey_ask` and burn tokens asking each other trivia | Medium | Tool descriptions say when not to use it; `hops` cap; spawn budgets; TUI makes chatter visible |
-| Headless workers run with broad permissions and do something destructive | Low-medium | Workers inherit only the agent's declared allowed tools; `edit` and `shell` are gated; default spawn budget 20/day; never `--dangerously-skip-permissions` by default |
+| Headless workers run with broad permissions and do something destructive | Low-medium | Workers inherit only the agent's declared allowed tools; `edit` and `shell` are gated; default spawn budget 20/day; never `--dangerously-skip-permissions` |
 | Windows users cannot use unix sockets | Certain | Named pipes in v1.1; v1 README says Linux and macOS |
 | "Agent mesh" sounds like enterprise middleware and bounces individual devs | Medium | Lead with the GIF and "your Claude Code sessions can ask each other for help"; the category word goes second |
 | It stays a cool demo and nobody uses it daily | The real one | The beta's job is to find the three everyday moments where it saves time (cross-repo questions, test-running, "ask the agent that owns the infra") and put those, not the architecture, in the README |
@@ -436,6 +455,7 @@ Core first because everything else is a client of it; the shim and hooks start o
 - Name: Covey, or Starlings if you want the murmuration story more than the short word. Register the PyPI name and GitHub org the day you decide; both are free today and that changes.
 - Launch date: Dec 8, 2026 after a one-week beta, or Jan 12, 2027 with a longer holiday beta if the week-one hook experiments are shaky. The plan takes Dec 8 because Claude Code removes typing as the bottleneck; the slip date is the safety valve.
 - Telemetry: a single opt-in "first cross-agent request completed" ping, or none at all. Some of the HN audience will object even to opt-in; the number is valuable enough that the plan includes it, clearly worded and default off.
+- How hooks authenticate. The `SessionStart` hook and the shim both register the same agent, and the Stop and PostToolUse hooks need to read its inbox, but only the shim holds the agent token and a live slug cannot be registered twice. Options: let a registration carrying the same Claude Code `session_id` refresh a live slug and have the shim hand its token to hooks through a 0600 file keyed by session; or have the hooks ask the shim. Depends on whether the shim can learn the `session_id`, which is a week-one experiment.
 - Whether `edit` on another agent's repo is `gated` by default or `forbidden` by default. The plan says gated, because the demo is better for it, but a stricter default is a defensible choice for a security-first README.
 
 **What the first commit should be:** the card JSON Schema, the SQLite schema and the OpenAPI file, with no code. Getting those three right is most of the design; everything else is typing.
