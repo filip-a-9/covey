@@ -71,7 +71,11 @@ paths:
       tags: [agents]
       operationId: heartbeatAgent
       summary: Mark an agent as live
-      description: The shim calls this every 20 seconds while connected.
+      description: |
+        The shim calls this every 20 seconds while connected. It always refreshes `last_seen`.
+        It sets liveness to `live` only while a session is attached (after registerAgent or
+        putAgentSession). After endAgentSession it answers 200 with the unchanged `wakeable` or
+        `gone` liveness and does not revive the agent; only putAgentSession or a register does.
       security:
         - joinToken: []
         - agentToken: []
@@ -151,9 +155,101 @@ paths:
           description: Defaults to the open statuses (queued, delivered, working, needs_input).
           schema:
             $ref: "#/components/schemas/RequestStatus"
+        - name: peek
+          in: query
+          description: |
+            When true, read without side effects: `queued` requests stay `queued` even when the
+            caller is the target. Without it, the target's own read moves `queued` to `delivered`.
+            The PostToolUse hook peeks.
+          schema: { type: boolean, default: false }
       responses:
         "200":
           description: Pending requests
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RequestList"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/agents/{slug}/session:
+    put:
+      tags: [agents]
+      operationId: putAgentSession
+      summary: Attach the current Claude Code session to an agent
+      description: |
+        Sets `session_id` and liveness `live`. An agent token may act only on its own slug.
+        Changing the id ends the old session's `session` grants. Called by the SessionStart hook.
+      security:
+        - agentToken: []
+      parameters:
+        - $ref: "#/components/parameters/Slug"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SessionBody"
+      responses:
+        "200":
+          description: Session attached
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HeartbeatResult"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      tags: [agents]
+      operationId: endAgentSession
+      summary: Detach the session from an agent
+      description: |
+        Clears `session_id` and sets liveness `wakeable` if the card says wakeable, else `gone`
+        (the same rule as the liveness sweep). Audited as `agent.session_ended`. Afterwards a
+        heartbeat does not revive the agent; see heartbeatAgent. The hook skips this call when
+        the SessionEnd reason is `clear`. An agent token may act only on its own slug.
+      security:
+        - agentToken: []
+      parameters:
+        - $ref: "#/components/parameters/Slug"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SessionEndBody"
+      responses:
+        "200":
+          description: Session detached; `liveness` is the new value
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HeartbeatResult"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/agents/{slug}/inbox/stop-claim:
+    post:
+      tags: [requests]
+      operationId: claimInboxForStop
+      summary: Claim pending requests for the Stop hook, once each
+      description: |
+        In one transaction: selects the agent's `queued` requests (not yet seen by the model)
+        whose `stop_blocked_at` is null, stamps `stop_blocked_at`, and moves them to
+        `delivered`. Returns them oldest first, or an empty list when none, so the Stop hook
+        blocks at most once per request. An agent token may act only on its own slug.
+      security:
+        - agentToken: []
+      parameters:
+        - $ref: "#/components/parameters/Slug"
+      responses:
+        "200":
+          description: The claimed requests
           content:
             application/json:
               schema:
@@ -602,6 +698,23 @@ components:
         covey: { $ref: "#/components/schemas/Version" }
         liveness: { $ref: "#/components/schemas/Liveness" }
         last_seen: { type: string, format: date-time }
+
+    SessionBody:
+      type: object
+      additionalProperties: false
+      required: [session_id]
+      properties:
+        session_id: { type: string, minLength: 1, maxLength: 200 }
+
+    SessionEndBody:
+      type: object
+      additionalProperties: false
+      required: [reason]
+      properties:
+        reason:
+          type: string
+          description: The SessionEnd hook's `reason`, e.g. `logout`, `prompt_input_exit`.
+          maxLength: 200
 
     DescribeBody:
       type: object

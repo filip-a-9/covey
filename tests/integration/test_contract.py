@@ -14,7 +14,13 @@ from referencing.jsonschema import DRAFT202012
 SCHEMA_DIR = Path(__file__).resolve().parents[2] / "src" / "covey" / "schema"
 BASE = SCHEMA_DIR.as_uri() + "/"
 SPEC = yaml.safe_load((SCHEMA_DIR / "api.yaml").read_text())
-NOT_IMPLEMENTED = {"streamEvents"}  # SSE moves to the TUI slice
+NOT_IMPLEMENTED = {
+    "streamEvents",  # SSE moves to the TUI slice
+    # Contract added ahead of the hooks-slice implementation; that step removes these.
+    "putAgentSession",
+    "endAgentSession",
+    "claimInboxForStop",
+}
 
 
 def operations() -> set[tuple[str, str]]:
