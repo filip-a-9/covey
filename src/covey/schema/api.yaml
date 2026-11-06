@@ -213,7 +213,7 @@ paths:
         - $ref: "#/components/parameters/RequestId"
         - name: wait
           in: query
-          description: Seconds to block until the request reaches a final status.
+          description: Seconds to block until the request reaches a final status or `needs_input`.
           schema: { type: integer, minimum: 0, maximum: 600, default: 0 }
       responses:
         "200":

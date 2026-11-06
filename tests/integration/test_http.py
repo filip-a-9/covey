@@ -99,6 +99,30 @@ def test_hero_flow_long_poll_returns_the_reply(tcp, web, api):
     assert elapsed < 5
 
 
+def test_wait_returns_when_the_target_needs_input(tcp, web, api):
+    rid = ask(tcp, web, "api", "explain").json()["request"]["request_id"]
+
+    def poll():
+        started = time.monotonic()
+        got = tcp.get(f"/v1/requests/{rid}", params={"wait": 10}, headers=web)
+        return got, time.monotonic() - started
+
+    with concurrent.futures.ThreadPoolExecutor(1) as pool:
+        future = pool.submit(poll)
+        time.sleep(0.3)
+        tcp.get("/v1/agents/api/inbox", headers=api)
+        rep = tcp.post(
+            f"/v1/requests/{rid}/reply",
+            json={"result": "which module?", "status": "needs_input"},
+            headers=api,
+        )
+        assert rep.status_code == 200
+        got, elapsed = future.result(15)
+    assert got.json()["request"]["status"] == "needs_input"
+    assert got.json()["request"]["result"] == "which module?"
+    assert elapsed < 5
+
+
 def test_wait_returns_after_the_timeout_when_nothing_happens(tcp, web, api):
     rid = ask(tcp, web, "api", "explain").json()["request"]["request_id"]
     started = time.monotonic()

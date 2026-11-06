@@ -444,7 +444,9 @@ def create_app(cfg: Config) -> FastAPI:
 
         def finished() -> dict[str, Any] | None:
             req = router.get_request(daemon.conn, request_id)
-            return req if req["status"] in router.FINAL_STATUSES else None
+            # needs_input is not final, but the asker has to hear the question.
+            returnable = (*router.FINAL_STATUSES, "needs_input")
+            return req if req["status"] in returnable else None
 
         req = await daemon.wait_for(finished, wait) if wait else None
         return versioned(request=req or router.get_request(daemon.conn, request_id))
