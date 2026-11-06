@@ -1,0 +1,25 @@
+# Local agent and editor config
+.claude/
+.claude.json
+.mcp.json
+CLAUDE.md
+CLAUDE.local.md
+
+# Environment files
+.env*
+!.env.example
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+
+# Tool caches and coverage
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
