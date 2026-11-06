@@ -1,0 +1,22 @@
+[
+  {"need": "who owns the endpoint that creates an order?", "expect": "orders-api"},
+  {"need": "I need to know why the Stripe webhook returns 500", "expect": "orders-api"},
+  {"need": "add a database migration for a new invoices table", "expect": "orders-api"},
+  {"need": "the checkout form is not validating the postal code", "expect": "web-shop"},
+  {"need": "which React component renders the cart?", "expect": "web-shop"},
+  {"need": "someone who knows our Terraform setup", "expect": "infra"},
+  {"need": "I want to change an IAM role so the job can read the bucket", "expect": "infra"},
+  {"need": "run a terraform plan for the staging VPC", "expect": "infra"},
+  {"need": "the nightly reporting table is empty, who loads it?", "expect": "data-pipeline"},
+  {"need": "backfill last week of events into the warehouse", "expect": "data-pipeline"},
+  {"need": "how do we ship a new build to the App Store?", "expect": "mobile-app"},
+  {"need": "push notifications are not arriving on Android", "expect": "mobile-app"},
+  {"need": "update the user guide and the changelog", "expect": "docs-site"},
+  {"need": "write a tutorial for new users", "expect": "docs-site"},
+  {"need": "can you book me a flight and add it to my calendar?", "expect": "assistant"},
+  {"need": "remind me tomorrow morning about the dentist", "expect": "assistant"},
+  {"need": "kick off a GPU training run with a new learning rate", "expect": "ml-training"},
+  {"need": "what is the evaluation metric for the recommender?", "expect": "ml-training"},
+  {"need": "who can explain how the model is trained?", "expect": "ml-training"},
+  {"need": "where is the database schema for payments defined?", "expect": "orders-api"}
+]

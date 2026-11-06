@@ -9,6 +9,22 @@ connection the daemon opens must set it again; the line below covers only the on
 creates the schema.
 """
 
+import hashlib
+import json
+import os
+import secrets
+import socket
+import sqlite3
+from collections.abc import Iterator
+from contextlib import contextmanager
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
+
+from covey.config import Config
+from covey.ids import new_ulid
+
 SCHEMA_VERSION = 1
 
 DDL = f"""
@@ -100,3 +116,147 @@ END;
 
 PRAGMA user_version = {SCHEMA_VERSION};
 """
+
+
+class SchemaTooNew(RuntimeError):
+    pass
+
+
+@dataclass(frozen=True)
+class Node:
+    node_id: str
+    name: str
+
+
+def now_iso() -> str:
+    """Current UTC time as ISO-8601 with milliseconds and a Z, so text order is time order."""
+    return datetime.now(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+
+def hash_token(token: str) -> str:
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+def connect(path: Path) -> sqlite3.Connection:
+    """Open the database. Autocommit mode: writes go through `transaction()`."""
+    conn = sqlite3.connect(path, check_same_thread=False, isolation_level=None)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode = WAL")
+    conn.execute("PRAGMA foreign_keys = ON")
+    conn.execute("PRAGMA busy_timeout = 5000")
+    return conn
+
+
+@contextmanager
+def transaction(conn: sqlite3.Connection) -> Iterator[sqlite3.Connection]:
+    """BEGIN IMMEDIATE ... COMMIT, rolled back on error. Nested use joins the outer one."""
+    if conn.in_transaction:
+        yield conn
+        return
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        yield conn
+    except BaseException:
+        conn.execute("ROLLBACK")
+        raise
+    conn.execute("COMMIT")
+
+
+def migrate(conn: sqlite3.Connection) -> None:
+    version = conn.execute("PRAGMA user_version").fetchone()[0]
+    if version == SCHEMA_VERSION:
+        return
+    if version > SCHEMA_VERSION:
+        raise SchemaTooNew(
+            f"The database has schema version {version}; this covey knows {SCHEMA_VERSION}. "
+            "Upgrade covey (uv tool upgrade covey) or point COVEY_HOME at another directory."
+        )
+    if version == 0:
+        conn.executescript(DDL)
+        return
+    raise RuntimeError(
+        f"No migration from schema version {version} to {SCHEMA_VERSION}."
+    )
+
+
+def audit(
+    conn: sqlite3.Connection,
+    actor: str,
+    event: str,
+    subject: str | None = None,
+    detail: dict[str, Any] | None = None,
+) -> int:
+    """Append one audit row and return its id."""
+    cur = conn.execute(
+        "INSERT INTO audit (ts, actor, event, subject, detail) VALUES (?, ?, ?, ?, ?)",
+        (now_iso(), actor, event, subject, json.dumps(detail or {})),
+    )
+    return cur.lastrowid
+
+
+def _write_private(path: Path, text: str) -> None:
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "w") as f:
+        f.write(text)
+
+
+RESERVED_SLUGS = ("human", "coveyd")
+
+
+def daemon_actor(node_id: str) -> str:
+    """The audit actor for changes the daemon makes on its own (sweeps, expiry)."""
+    return f"coveyd@{node_id}"
+
+
+def human_card(node_id: str, last_seen: str) -> dict[str, Any]:
+    return {
+        "covey": "1",
+        "agent_id": f"human@{node_id}",
+        "slug": "human",
+        "kind": "human",
+        "summary": "The person at this machine. Ask when only they can decide or answer.",
+        "tags": [],
+        "capabilities": [],
+        "delivery": "poll",
+        "wakeable": False,
+        "liveness": "live",
+        "last_seen": last_seen,
+        "public_key": None,
+    }
+
+
+def init_home(cfg: Config) -> Node:
+    """First-run setup, idempotent: home dir, token files, node.json, schema, node and human rows."""
+    cfg.home.mkdir(mode=0o700, parents=True, exist_ok=True)
+    os.chmod(cfg.home, 0o700)
+    for path in (cfg.token_path, cfg.join_token_path):
+        if not path.exists():
+            _write_private(path, secrets.token_urlsafe(32) + "\n")
+    if not cfg.node_path.exists():
+        node_info = {"node_id": new_ulid(), "name": socket.gethostname()}
+        _write_private(cfg.node_path, json.dumps(node_info) + "\n")
+    node_info = json.loads(cfg.node_path.read_text())
+    node = Node(node_id=node_info["node_id"], name=node_info["name"])
+
+    conn = connect(cfg.db_path)
+    try:
+        migrate(conn)
+        now = now_iso()
+        with transaction(conn):
+            conn.execute(
+                "INSERT OR IGNORE INTO nodes (node_id, name, created_at) VALUES (?, ?, ?)",
+                (node.node_id, node.name, now),
+            )
+            conn.execute(
+                "INSERT OR IGNORE INTO agents (agent_id, slug, node_id, card, liveness, last_seen)"
+                " VALUES (?, 'human', ?, ?, 'live', ?)",
+                (
+                    f"human@{node.node_id}",
+                    node.node_id,
+                    json.dumps(human_card(node.node_id, now)),
+                    now,
+                ),
+            )
+    finally:
+        conn.close()
+    return node

@@ -1,0 +1,404 @@
+"""Registry: cards, liveness and discovery ranking.
+
+Every function takes an open connection and joins the caller's transaction if there is one.
+The `agents.liveness` and `agents.last_seen` columns are authoritative; `card_of()` returns
+the stored card with those two fields copied in. Errors are `CoveyError`.
+
+Rules for this slice (docs/SPEC.md "Data model & wire protocol", .claude/specs/core-daemon.md):
+- Register builds the full card from the RegisterBody and validates it against
+  `schema/card.json` (400 `invalid_card`). Slugs `human` and `coveyd` are reserved (409 `slug_reserved`).
+  A slug whose holder is `live` is refused (409 `slug_live`); otherwise the caller takes it
+  over. Every register mints a new agent token; only its sha256 is stored.
+- Liveness: no heartbeat for `timeout_s` -> `wakeable` if the card says wakeable, else `gone`.
+  `session_id` is kept: session grants match only while the agent is `live`, and a heartbeat
+  from the same session revives them. A new register replaces the session id. The human row
+  never changes.
+- Ranking, per SPEC.md: score = 3 x capability name match + 2 x tag overlap
+  + 1 x BM25-ish token overlap on summary + 1 x overlap with the agent's last 20 request
+  topics + liveness bonus (live 2, wakeable 1, gone excluded). Each match has a one-line `why`.
+"""
+
+import json
+import math
+import re
+import secrets
+import sqlite3
+from datetime import datetime, timedelta
+from pathlib import Path
+from typing import Any
+
+from jsonschema import Draft202012Validator
+
+from covey.daemon import store
+from covey.daemon.errors import CoveyError
+
+# src/covey/schema has no __init__.py, so find it relative to this file.
+_CARD_SCHEMA = Path(__file__).resolve().parent.parent / "schema" / "card.json"
+_VALIDATOR = Draft202012Validator(json.loads(_CARD_SCHEMA.read_text()))
+
+DESCRIBABLE = ("summary", "tags", "capabilities", "instructions")
+RECENT_REQUESTS = 20
+STOPWORDS = frozenset(
+    {
+        "a",
+        "an",
+        "and",
+        "are",
+        "as",
+        "at",
+        "be",
+        "by",
+        "can",
+        "do",
+        "does",
+        "for",
+        "from",
+        "get",
+        "how",
+        "i",
+        "in",
+        "is",
+        "it",
+        "me",
+        "my",
+        "of",
+        "on",
+        "or",
+        "our",
+        "that",
+        "the",
+        "this",
+        "to",
+        "we",
+        "what",
+        "when",
+        "where",
+        "which",
+        "who",
+        "why",
+        "with",
+        "you",
+        "your",
+    }
+)
+
+
+def card_of(row: sqlite3.Row | dict[str, Any]) -> dict[str, Any]:
+    """The stored card with `liveness` and `last_seen` taken from the row's columns."""
+    card = json.loads(row["card"])
+    card["liveness"] = row["liveness"]
+    card["last_seen"] = row["last_seen"]
+    return card
+
+
+def get_agent(conn: sqlite3.Connection, slug: str) -> dict[str, Any]:
+    """The agents row for `slug` as a dict, or 404 `agent_not_found`."""
+    row = conn.execute("SELECT * FROM agents WHERE slug = ?", (slug,)).fetchone()
+    if row is None:
+        raise CoveyError(
+            404,
+            "agent_not_found",
+            f"No agent named {slug!r} on this node.",
+            "List agents with `covey ps` or GET /v1/agents.",
+        )
+    return dict(row)
+
+
+def agent_by_token_hash(
+    conn: sqlite3.Connection, token_hash: str
+) -> dict[str, Any] | None:
+    """The agents row whose token_hash equals `token_hash`, or None."""
+    row = conn.execute(
+        "SELECT * FROM agents WHERE token_hash = ?", (token_hash,)
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def _validate(card: dict[str, Any]) -> None:
+    error = next(iter(_VALIDATOR.iter_errors(card)), None)
+    if error is not None:
+        where = "/".join(str(p) for p in error.path) or "card"
+        raise CoveyError(
+            400,
+            "invalid_card",
+            f"Invalid card at {where}: {error.message}",
+            "Fix the field against src/covey/schema/card.json and register again.",
+        )
+
+
+def register(
+    conn: sqlite3.Connection, node_id: str, body: dict[str, Any]
+) -> tuple[dict[str, Any], str]:
+    """Register or take over a slug. Returns (card, agent_token). Audits `agent.registered`
+    (never with the token). `body` is a RegisterBody; `session_id` goes to the column, not
+    the card."""
+    slug = body.get("slug", "")
+    if slug in store.RESERVED_SLUGS:
+        raise CoveyError(
+            409,
+            "slug_reserved",
+            f"The slug {slug!r} is reserved for covey itself.",
+            "Pick another slug.",
+        )
+    agent_id = f"{slug}@{node_id}"
+    now = store.now_iso()
+    card: dict[str, Any] = {
+        "covey": "1",
+        "agent_id": agent_id,
+        "slug": slug,
+        "kind": body.get("kind"),
+        "summary": body.get("summary", ""),
+        "tags": body.get("tags", []),
+        "capabilities": body.get("capabilities", []),
+        "delivery": body.get("delivery"),
+        "wakeable": body.get("wakeable", False),
+        "liveness": "live",
+        "last_seen": now,
+        "public_key": None,
+    }
+    for optional in ("workdir", "instructions", "webhook_url"):
+        if optional in body:
+            card[optional] = body[optional]
+    _validate(card)
+
+    token = secrets.token_urlsafe(32)
+    token_hash = store.hash_token(token)
+    session_id = body.get("session_id")
+    with store.transaction(conn):
+        row = conn.execute(
+            "SELECT liveness FROM agents WHERE slug = ?", (slug,)
+        ).fetchone()
+        if row is not None and row["liveness"] == "live":
+            raise CoveyError(
+                409,
+                "slug_live",
+                f"An agent named {slug!r} is live on this node.",
+                "Pick another slug, or wait for the other session to end.",
+            )
+        if row is None:
+            conn.execute(
+                "INSERT INTO agents (agent_id, slug, node_id, card, liveness, last_seen,"
+                " session_id, token_hash) VALUES (?, ?, ?, ?, 'live', ?, ?, ?)",
+                (
+                    agent_id,
+                    slug,
+                    node_id,
+                    json.dumps(card),
+                    now,
+                    session_id,
+                    token_hash,
+                ),
+            )
+        else:
+            conn.execute(
+                "UPDATE agents SET card = ?, liveness = 'live', last_seen = ?,"
+                " session_id = ?, token_hash = ? WHERE slug = ?",
+                (json.dumps(card), now, session_id, token_hash, slug),
+            )
+        store.audit(
+            conn,
+            agent_id,
+            "agent.registered",
+            agent_id,
+            {
+                "kind": card["kind"],
+                "delivery": card["delivery"],
+                "takeover": row is not None,
+            },
+        )
+    return card, token
+
+
+def heartbeat(conn: sqlite3.Connection, slug: str) -> dict[str, Any]:
+    """Mark the agent live now. Returns {"liveness", "last_seen"}. 404 for an unknown slug.
+    The human row is never heartbeated: it is treated as unknown (404)."""
+    if slug == "human":
+        raise CoveyError(
+            404,
+            "agent_not_found",
+            "The human pseudo-agent has no heartbeat.",
+            "Heartbeat as a registered agent.",
+        )
+    get_agent(conn, slug)
+    now = store.now_iso()
+    with store.transaction(conn):
+        conn.execute(
+            "UPDATE agents SET liveness = 'live', last_seen = ? WHERE slug = ?",
+            (now, slug),
+        )
+    return {"liveness": "live", "last_seen": now}
+
+
+def describe(
+    conn: sqlite3.Connection, slug: str, fields: dict[str, Any]
+) -> dict[str, Any]:
+    """Update summary / tags / capabilities / instructions; re-validate; return the card.
+    Audits `agent.described`."""
+    row = get_agent(conn, slug)
+    card = card_of(row)
+    changed = {k: fields[k] for k in DESCRIBABLE if k in fields}
+    card.update(changed)
+    _validate(card)
+    with store.transaction(conn):
+        conn.execute(
+            "UPDATE agents SET card = ? WHERE slug = ?", (json.dumps(card), slug)
+        )
+        store.audit(
+            conn,
+            row["agent_id"],
+            "agent.described",
+            row["agent_id"],
+            {"fields": sorted(changed)},
+        )
+    return card
+
+
+def whoami(conn: sqlite3.Connection, agent_id: str, node_id: str) -> dict[str, Any]:
+    """{"card", "node_id", "liveness"} for the caller."""
+    row = conn.execute(
+        "SELECT * FROM agents WHERE agent_id = ?", (agent_id,)
+    ).fetchone()
+    if row is None:
+        raise CoveyError(
+            404,
+            "agent_not_found",
+            f"No agent {agent_id}.",
+            "Register again with the join token.",
+        )
+    return {"card": card_of(row), "node_id": node_id, "liveness": row["liveness"]}
+
+
+def _parse(ts: str) -> datetime:
+    return datetime.fromisoformat(ts)  # 3.11 accepts the trailing Z
+
+
+def sweep(conn: sqlite3.Connection, now: str, timeout_s: float) -> list[str]:
+    """Apply the liveness timeout. Returns the agent_ids whose liveness changed; audits
+    `agent.liveness` for each."""
+    cutoff = _parse(now) - timedelta(seconds=timeout_s)
+    rows = conn.execute(
+        "SELECT agent_id, node_id, card, last_seen FROM agents"
+        " WHERE liveness = 'live' AND slug != 'human'"
+    ).fetchall()
+    changed = []
+    with store.transaction(conn):
+        for row in rows:
+            if _parse(row["last_seen"]) >= cutoff:
+                continue
+            new = "wakeable" if json.loads(row["card"])["wakeable"] else "gone"
+            conn.execute(
+                "UPDATE agents SET liveness = ? WHERE agent_id = ?",
+                (new, row["agent_id"]),
+            )
+            store.audit(
+                conn,
+                store.daemon_actor(row["node_id"]),
+                "agent.liveness",
+                row["agent_id"],
+                {"from": "live", "to": new},
+            )
+            changed.append(row["agent_id"])
+    return changed
+
+
+def _tokens(text: str) -> list[str]:
+    """Lowercase alphanumeric words, minus stopwords, with a light plural strip."""
+    out = []
+    for word in re.findall(r"[a-z0-9]+", text.lower()):
+        if word in STOPWORDS:
+            continue
+        if len(word) > 4 and word.endswith("ies"):
+            word = word[:-3] + "y"
+        elif len(word) > 3 and word.endswith("s") and not word.endswith("ss"):
+            word = word[:-1]
+        out.append(word)
+    return out
+
+
+def _bm25(
+    query: set[str], doc: list[str], docs: list[list[str]], k1=1.5, b=0.75
+) -> tuple[float, list[str]]:
+    """BM25 of `doc` for the query tokens, and the query tokens that matched."""
+    avg_len = sum(len(d) for d in docs) / len(docs) or 1
+    score, hits = 0.0, []
+    for term in sorted(query):
+        tf = doc.count(term)
+        if tf == 0:
+            continue
+        df = sum(1 for d in docs if term in d)
+        idf = math.log(1 + (len(docs) - df + 0.5) / (df + 0.5))
+        score += idf * tf * (k1 + 1) / (tf + k1 * (1 - b + b * len(doc) / avg_len))
+        hits.append(term)
+    return score, hits
+
+
+def find(
+    conn: sqlite3.Connection,
+    need: str | None = None,
+    capability: str | None = None,
+    limit: int = 5,
+) -> list[dict[str, Any]]:
+    """Discovery. Returns [{"card", "score", "why"}], best first, at most `limit`.
+
+    The human pseudo-agent and `gone` agents are never returned. `capability` keeps only
+    agents that declare it at a level other than forbidden. Without `need`, all remaining
+    agents, unranked (score 0, ordered by slug).
+    """
+    rows = conn.execute(
+        "SELECT * FROM agents WHERE slug != 'human' AND liveness != 'gone' ORDER BY slug"
+    ).fetchall()
+    cards = [card_of(r) for r in rows]
+    if capability is not None:
+        cards = [
+            c
+            for c in cards
+            if any(
+                cap["name"] == capability and cap["level"] != "forbidden"
+                for cap in c["capabilities"]
+            )
+        ]
+    if not need:
+        return [{"card": c, "score": 0, "why": ""} for c in cards[:limit]]
+
+    query = set(_tokens(need))
+    summaries = [_tokens(c["summary"]) for c in cards]
+    matches = []
+    for card, summary in zip(cards, summaries, strict=True):
+        why, relevance = [], 0.0
+        caps = [
+            c["name"] for c in card["capabilities"] if query & set(_tokens(c["name"]))
+        ]
+        cap_hits = {t for n in caps for t in _tokens(n)} & query
+        if caps:
+            relevance += 3 * len(cap_hits)
+            why.append("capability " + ", ".join(caps))
+        tags = [t for t in card["tags"] if query & set(_tokens(t))]
+        tag_hits = {tok for t in tags for tok in _tokens(t)} & query
+        if tags:
+            relevance += 2 * len(tag_hits)
+            why.append("tags: " + ", ".join(tags))
+        score, words = _bm25(query, summary, summaries)
+        if words:
+            relevance += score
+            why.append("summary: " + ", ".join(words))
+        topics = conn.execute(
+            "SELECT task FROM requests WHERE to_agent = ? ORDER BY created_at DESC,"
+            " request_id DESC LIMIT ?",
+            (card["agent_id"], RECENT_REQUESTS),
+        ).fetchall()
+        seen = {t for r in topics for t in _tokens(r["task"])} & query
+        if seen:
+            relevance += len(seen)
+            why.append("recent requests: " + ", ".join(sorted(seen)))
+        if relevance == 0:
+            continue
+        bonus = 2 if card["liveness"] == "live" else 1
+        matches.append(
+            {
+                "card": card,
+                "score": round(relevance + bonus, 3),
+                "why": "; ".join(why),
+            }
+        )
+    matches.sort(key=lambda m: (-m["score"], m["card"]["slug"]))
+    return matches[:limit]
