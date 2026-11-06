@@ -12,6 +12,7 @@ import typer
 from covey import config as config_module
 from covey.cli.client import human_client
 from covey.cli.hook import hook_app
+from covey.cli.init import init as init_command
 from covey.config import Config, ConfigError
 from covey.launch import LaunchError, ensure_daemon, pid_alive, read_pid
 
@@ -20,6 +21,7 @@ app = typer.Typer(
 )
 
 app.add_typer(hook_app, name="hook")
+app.command("init")(init_command)
 
 JsonOpt = Annotated[bool, typer.Option("--json", help="Print JSON instead of text.")]
 
