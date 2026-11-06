@@ -458,3 +458,13 @@ def test_grant_expiry_is_stored_in_utc(human, web, api):
     )
     assert r.status_code == 201, r.text
     assert r.json()["grant"]["expires_at"] == "2030-01-01T00:00:00.000Z"
+
+
+def test_plain_agent_list_returns_all_agents_beyond_default_limit(tcp, daemon, web):
+    for i in range(7):
+        register(tcp, daemon, f"extra{i}")
+    r = tcp.get("/v1/agents", headers=web)
+    assert r.status_code == 200
+    assert len(r.json()["matches"]) == 8
+    limited = tcp.get("/v1/agents", params={"need": "agent", "limit": 2}, headers=web)
+    assert len(limited.json()["matches"]) <= 2

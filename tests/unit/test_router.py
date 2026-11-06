@@ -394,6 +394,50 @@ def test_once_grant_consumed_on_done(conn, world):
     assert ask(conn, world, "deploy")["status"] == "awaiting_grant"
 
 
+def test_once_grant_allows_one_request_in_flight(conn, world):
+    g = grants.create_grant(
+        conn, world["alice"], world["bob"], "deploy", "once", world["human"]
+    )
+    first = ask(conn, world, "deploy")
+    assert first["status"] == "queued"
+    second = ask(conn, world, "deploy")
+    assert second["status"] == "awaiting_grant"
+    router.reply(conn, first["request_id"], world["bob"], "ok", "done")
+    assert grants.get_grant(conn, g["grant_id"]) is None
+    assert ask(conn, world, "deploy")["status"] == "awaiting_grant"
+
+
+def test_once_grant_in_flight_limit_is_per_requester_and_capability(conn, world):
+    grants.create_grant(
+        conn, world["alice"], world["bob"], "deploy", "once", world["human"]
+    )
+    assert ask(conn, world, "deploy")["status"] == "queued"
+    assert ask(conn, world, "review")["status"] == "queued"
+
+
+def test_wildcard_once_grant_limits_in_flight_across_capabilities(conn, node, world):
+    dave = add_agent(
+        conn,
+        node,
+        "dave",
+        [("deploy", "gated"), ("publish", "gated")],
+        session_id="S2",
+    )
+    grants.create_grant(conn, world["alice"], dave, "*", "once", world["human"])
+    first = router.create_request(conn, world["alice"], "dave", "deploy", "do it")
+    second = router.create_request(conn, world["alice"], "dave", "publish", "do it")
+    assert first["status"] == "queued"
+    assert second["status"] == "awaiting_grant"
+
+
+def test_always_grant_allows_many_in_flight(conn, world):
+    grants.create_grant(
+        conn, world["alice"], world["bob"], "deploy", "always", world["human"]
+    )
+    assert ask(conn, world, "deploy")["status"] == "queued"
+    assert ask(conn, world, "deploy")["status"] == "queued"
+
+
 def test_once_grant_consumed_on_failed_but_not_needs_input(conn, world):
     g = grants.create_grant(
         conn, world["alice"], world["bob"], "deploy", "once", world["human"]

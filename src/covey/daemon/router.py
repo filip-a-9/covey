@@ -16,7 +16,8 @@ Decisions for this slice (see .claude/specs/core-daemon.md):
   `ask` -> `awaiting_grant`; `allow` -> `queued`.
 - Reading the inbox moves `queued` to `delivered`. `working` is unused in this slice.
 - A `once` grant is checked at creation and consumed at a successful final reply
-  (done/failed). Every reply to a non-open capability re-checks the grant first; if it no
+  (done/failed). While one request holds it (open and not awaiting a grant), further
+  matching requests land in `awaiting_grant`: one in flight per grant. Every reply to a non-open capability re-checks the grant first; if it no
   longer allows, the request becomes `failed` (result `grant_revoked`) and the reply is
   refused with 403 `grant_revoked`.
 - At its deadline an open request becomes `expired`; result `awaiting_grant_timeout` if it
@@ -202,6 +203,15 @@ def create_request(
             status = {"allow": "queued", "ask": "awaiting_grant", "deny": "refused"}[
                 decision.outcome
             ]
+            if (
+                status == "queued"
+                and decision.grant is not None
+                and decision.grant["scope"] == "once"
+                and _has_open_request(
+                    conn, from_agent, target["agent_id"], decision.grant["capability"]
+                )
+            ):
+                status = "awaiting_grant"
             if status == "refused":
                 result = "capability_refused"
         request_id = new_ulid()
@@ -234,6 +244,19 @@ def create_request(
         if status == "awaiting_grant":
             store.audit(conn, from_agent, "approval.requested", request_id, detail)
         return get_request(conn, request_id)
+
+
+def _has_open_request(
+    conn: sqlite3.Connection, from_agent: str, to_agent: str, capability: str
+) -> bool:
+    """True if a request already holds the `once` grant; a `*` grant covers every capability."""
+    row = conn.execute(
+        "SELECT 1 FROM requests WHERE from_agent = ? AND to_agent = ?"
+        " AND (? = '*' OR capability = ?)"
+        " AND status IN ('queued', 'delivered', 'working', 'needs_input') LIMIT 1",
+        (from_agent, to_agent, capability, capability),
+    ).fetchone()
+    return row is not None
 
 
 def _deadline(timeout_s: int | None) -> str | None:

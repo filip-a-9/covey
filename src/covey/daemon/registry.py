@@ -336,9 +336,9 @@ def find(
     conn: sqlite3.Connection,
     need: str | None = None,
     capability: str | None = None,
-    limit: int = 5,
+    limit: int | None = 5,
 ) -> list[dict[str, Any]]:
-    """Discovery. Returns [{"card", "score", "why"}], best first, at most `limit`.
+    """Discovery. Returns [{"card", "score", "why"}], best first, at most `limit` (None: no cap).
 
     The human pseudo-agent and `gone` agents are never returned. `capability` keeps only
     agents that declare it at a level other than forbidden. Without `need`, all remaining

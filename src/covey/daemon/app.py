@@ -359,7 +359,10 @@ def create_app(cfg: Config) -> FastAPI:
         capability: str | None = None,
         limit: Annotated[int, Query(ge=1, le=50)] = 5,
     ) -> dict:
-        found = registry.find(app.state.daemon.conn, need, capability, limit)
+        # `limit` caps ranked results only; a plain list returns every non-gone agent.
+        found = registry.find(
+            app.state.daemon.conn, need, capability, limit if need else None
+        )
         return versioned(matches=found)
 
     @app.put("/v1/agents/{slug}/card")
