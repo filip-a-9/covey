@@ -84,3 +84,25 @@ def test_session_file_is_0600_and_keyed_by_the_claude_pid(tmp_path):
         "claude_pid": 4242,
         "claude_start_time": "123",
     }
+
+
+def test_read_session_returns_the_token_for_the_live_claude_process(tmp_path):
+    from covey.mcp.identity import _start_time, read_session
+
+    cfg = Config(home=tmp_path, port=1)
+    claude = {"pid": os.getpid(), "start_time": _start_time(os.getpid())}
+    write_session_file(cfg, claude, "api", "tok")
+    env = {"CLAUDE_PID": str(os.getpid())}
+    assert read_session(cfg, env) == {"slug": "api", "agent_token": "tok"}
+
+
+def test_read_session_is_none_for_a_missing_file_a_recycled_pid_or_no_pid(tmp_path):
+    from covey.mcp.identity import read_session
+
+    cfg = Config(home=tmp_path, port=1)
+    env = {"CLAUDE_PID": str(os.getpid())}
+    assert read_session(cfg, env) is None  # no file
+    write_session_file(cfg, {"pid": os.getpid(), "start_time": "stale"}, "api", "tok")
+    assert read_session(cfg, env) is None  # start time differs
+    assert read_session(cfg, {}) is None
+    assert read_session(cfg, {"CLAUDE_PID": "not-a-pid"}) is None

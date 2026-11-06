@@ -127,3 +127,24 @@ def write_session_file(
         )
     os.replace(tmp, path)
     return path
+
+
+class SessionInfo(TypedDict):
+    slug: str
+    agent_token: str
+
+
+def read_session(cfg: Config, env: Mapping[str, str]) -> SessionInfo | None:
+    """What a hook may act as: the shim's token file for the `claude` process in $CLAUDE_PID.
+
+    None when there is no file (no shim yet), it is unreadable, or its start time does not
+    match the live process (a recycled pid).
+    """
+    try:
+        pid = int(env["CLAUDE_PID"])
+        data = json.loads(session_file(cfg, {"pid": pid, "start_time": ""}).read_text())
+        if data["claude_pid"] != pid or data["claude_start_time"] != _start_time(pid):
+            return None
+        return {"slug": data["slug"], "agent_token": data["agent_token"]}
+    except (KeyError, ValueError, OSError):
+        return None

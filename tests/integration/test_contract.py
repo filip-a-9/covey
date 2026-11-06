@@ -16,10 +16,6 @@ BASE = SCHEMA_DIR.as_uri() + "/"
 SPEC = yaml.safe_load((SCHEMA_DIR / "api.yaml").read_text())
 NOT_IMPLEMENTED = {
     "streamEvents",  # SSE moves to the TUI slice
-    # Contract added ahead of the hooks-slice implementation; that step removes these.
-    "putAgentSession",
-    "endAgentSession",
-    "claimInboxForStop",
 }
 
 
@@ -142,6 +138,25 @@ def test_every_implemented_operation_matches_its_declared_response(daemon):
 
     chk.call(tcp, "get", "/v1/whoami", 200, headers=web)
     chk.call(tcp, "get", "/v1/whoami", 401)
+
+    sess = "/v1/agents/{slug}/session"
+    sid = {"session_id": "s1"}
+    chk.call(tcp, "put", sess, 200, {"slug": "web"}, json=sid, headers=web)
+    chk.call(tcp, "put", sess, 400, {"slug": "web"}, json={}, headers=web)
+    chk.call(tcp, "put", sess, 401, {"slug": "web"}, json=sid)
+    chk.call(tcp, "put", sess, 403, {"slug": "api"}, json=sid, headers=web)
+    tmp = bearer(
+        chk.call(tcp, "post", reg, 200, json=body("tmp"), headers=join)["agent_token"]
+    )
+    end = {"reason": "logout"}
+    chk.call(tcp, "delete", sess, 200, {"slug": "tmp"}, json=end, headers=tmp)
+    chk.call(tcp, "delete", sess, 400, {"slug": "tmp"}, json={}, headers=tmp)
+    chk.call(tcp, "delete", sess, 401, {"slug": "tmp"}, json=end)
+    chk.call(tcp, "delete", sess, 403, {"slug": "api"}, json=end, headers=tmp)
+    stop = "/v1/agents/{slug}/inbox/stop-claim"
+    chk.call(tcp, "post", stop, 200, {"slug": "api"}, headers=api)
+    chk.call(tcp, "post", stop, 401, {"slug": "api"})
+    chk.call(tcp, "post", stop, 403, {"slug": "api"}, headers=web)
 
     # requests
     ask = {"to": "api", "capability": "explain", "task": "t"}

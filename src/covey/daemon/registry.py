@@ -36,6 +36,10 @@ from covey.daemon.errors import CoveyError
 _CARD_SCHEMA = Path(__file__).resolve().parent.parent / "schema" / "card.json"
 _VALIDATOR = Draft202012Validator(json.loads(_CARD_SCHEMA.read_text()))
 
+# session_id after endAgentSession. It is "" (never a real id, and a session grant cannot
+# carry one) rather than NULL, so a never-attached agent that the sweep made wakeable can
+# still be revived by a heartbeat while an ended one cannot. No schema change needed.
+ENDED_SESSION = ""
 DESCRIBABLE = ("summary", "tags", "capabilities", "instructions")
 RECENT_REQUESTS = 20
 STOPWORDS = frozenset(
@@ -219,14 +223,61 @@ def heartbeat(conn: sqlite3.Connection, slug: str) -> dict[str, Any]:
             "The human pseudo-agent has no heartbeat.",
             "Heartbeat as a registered agent.",
         )
-    get_agent(conn, slug)
+    agent = get_agent(conn, slug)
+    now = store.now_iso()
+    # After end_session the session_id is ENDED_SESSION: refresh last_seen, do not revive.
+    attached = agent["session_id"] != ENDED_SESSION
+    with store.transaction(conn):
+        if attached:
+            conn.execute(
+                "UPDATE agents SET liveness = 'live', last_seen = ? WHERE slug = ?",
+                (now, slug),
+            )
+        else:
+            conn.execute("UPDATE agents SET last_seen = ? WHERE slug = ?", (now, slug))
+    return {"liveness": "live" if attached else agent["liveness"], "last_seen": now}
+
+
+def set_session(conn: sqlite3.Connection, slug: str, session_id: str) -> dict[str, Any]:
+    """Attach `session_id` and mark the agent live. A changed id ends the old session's
+    `session` grants (they match only the current id). Audits `agent.session_started`."""
+    agent = get_agent(conn, slug)
     now = store.now_iso()
     with store.transaction(conn):
         conn.execute(
-            "UPDATE agents SET liveness = 'live', last_seen = ? WHERE slug = ?",
-            (now, slug),
+            "UPDATE agents SET session_id = ?, liveness = 'live', last_seen = ?"
+            " WHERE slug = ?",
+            (session_id, now, slug),
+        )
+        store.audit(
+            conn,
+            agent["agent_id"],
+            "agent.session_started",
+            agent["agent_id"],
+            {"changed": agent["session_id"] != session_id},
         )
     return {"liveness": "live", "last_seen": now}
+
+
+def end_session(conn: sqlite3.Connection, slug: str, reason: str) -> dict[str, Any]:
+    """Mark the session ended (session_id becomes ENDED_SESSION, which matches no grant and
+    tells heartbeat not to revive); liveness becomes `wakeable` or `gone` by the card, as in the
+    sweep. Audits `agent.session_ended`."""
+    agent = get_agent(conn, slug)
+    new = "wakeable" if json.loads(agent["card"])["wakeable"] else "gone"
+    with store.transaction(conn):
+        conn.execute(
+            "UPDATE agents SET session_id = ?, liveness = ? WHERE slug = ?",
+            (ENDED_SESSION, new, slug),
+        )
+        store.audit(
+            conn,
+            agent["agent_id"],
+            "agent.session_ended",
+            agent["agent_id"],
+            {"reason": reason, "to": new},
+        )
+    return {"liveness": new, "last_seen": agent["last_seen"]}
 
 
 def describe(

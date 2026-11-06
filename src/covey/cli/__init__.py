@@ -11,12 +11,15 @@ import typer
 
 from covey import config as config_module
 from covey.cli.client import human_client
+from covey.cli.hook import hook_app
 from covey.config import Config, ConfigError
 from covey.launch import LaunchError, ensure_daemon, pid_alive, read_pid
 
 app = typer.Typer(
     help="Covey: a local agent mesh.", no_args_is_help=True, add_completion=False
 )
+
+app.add_typer(hook_app, name="hook")
 
 JsonOpt = Annotated[bool, typer.Option("--json", help="Print JSON instead of text.")]
 

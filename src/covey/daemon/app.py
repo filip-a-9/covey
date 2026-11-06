@@ -218,6 +218,14 @@ class DescribeBody(Body):
     instructions: str | None = Field(default=None, max_length=4000)
 
 
+class SessionBody(Body):
+    session_id: str = Field(min_length=1, max_length=200)
+
+
+class SessionEndBody(Body):
+    reason: str = Field(max_length=200)
+
+
 class AskBody(Body):
     to: str
     task: str = Field(min_length=1)
@@ -404,17 +412,54 @@ def create_app(cfg: Config) -> FastAPI:
             | None,
             Query(),
         ] = None,
+        peek: bool = False,
     ) -> dict:
         daemon = app.state.daemon
         own_slug(who, slug)
         agent = registry.get_agent(daemon.conn, slug)
         # Only the target's own read delivers; the human looking at it is just peeking.
-        reader_is_target = who.agent_id == agent["agent_id"]
+        reader_is_target = who.agent_id == agent["agent_id"] and not peek
         requests = router.inbox(
             daemon.conn, agent["agent_id"], status, reader_is_target
         )
         await daemon.notify()
         return versioned(requests=requests)
+
+    @app.post("/v1/agents/{slug}/inbox/stop-claim")
+    async def claim_inbox_for_stop(
+        slug: Annotated[str, Path(pattern=SLUG)],
+        who: Annotated[Caller, Depends(require("agent"))],
+    ) -> dict:
+        daemon = app.state.daemon
+        own_slug(who, slug)
+        agent = registry.get_agent(daemon.conn, slug)
+        requests = router.stop_claim(daemon.conn, agent["agent_id"])
+        await daemon.notify()
+        return versioned(requests=requests)
+
+    @app.put("/v1/agents/{slug}/session")
+    async def put_agent_session(
+        slug: Annotated[str, Path(pattern=SLUG)],
+        body: SessionBody,
+        who: Annotated[Caller, Depends(require("agent"))],
+    ) -> dict:
+        daemon = app.state.daemon
+        own_slug(who, slug)
+        result = registry.set_session(daemon.conn, slug, body.session_id)
+        await daemon.notify()
+        return versioned(**result)
+
+    @app.delete("/v1/agents/{slug}/session")
+    async def end_agent_session(
+        slug: Annotated[str, Path(pattern=SLUG)],
+        body: SessionEndBody,
+        who: Annotated[Caller, Depends(require("agent"))],
+    ) -> dict:
+        daemon = app.state.daemon
+        own_slug(who, slug)
+        result = registry.end_session(daemon.conn, slug, body.reason)
+        await daemon.notify()
+        return versioned(**result)
 
     @app.post("/v1/requests", status_code=201)
     async def create_request(
