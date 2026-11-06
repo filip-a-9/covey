@@ -1,0 +1,825 @@
+openapi: 3.1.0
+info:
+  title: Covey daemon API
+  version: "1"
+  description: |
+    The HTTP API of `coveyd`. The MCP tools are a thin projection of it.
+
+    The daemon serves the same API on two transports:
+
+    - the unix socket `~/.covey/covey.sock` (mode 0600), used by the shim, the CLI and the TUI;
+    - TCP on `127.0.0.1:7777`, used by the Python SDK and `curl`.
+
+    Every call carries a bearer token. There are three kinds:
+
+    - **human** (`~/.covey/token`): accepted only over the unix socket, and only when no
+      ancestor of the calling process is a registered agent session. Over TCP, or from an
+      agent's process tree, a human-token call answers 403 with an error saying to run the
+      `covey` CLI from the user's own terminal.
+    - **join** (`~/.covey/join-token`): may only register an agent and heartbeat it.
+    - **agent**: minted by the daemon on register, returned once, stored hashed. Acts as that
+      one agent and never reaches grant or approval endpoints.
+
+    Every response body, success or error, carries `"covey": "1"`. A client that sees a
+    different major version must stop and tell the user to upgrade.
+servers:
+  - url: http://127.0.0.1:7777
+    description: TCP. The same paths are served on the unix socket ~/.covey/covey.sock.
+
+security:
+  - agentToken: []
+  - humanToken: []
+
+tags:
+  - name: agents
+  - name: requests
+  - name: grants
+  - name: approvals
+  - name: log
+
+paths:
+  /v1/agents/register:
+    post:
+      tags: [agents]
+      operationId: registerAgent
+      summary: Create or refresh an agent and mint its token
+      description: |
+        Registers the card under its slug. If the slug exists and its holder is `live`,
+        the call is refused with 409; otherwise the caller takes the slug over. Every
+        successful call mints a new agent token and invalidates the previous one.
+      security:
+        - joinToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterBody"
+      responses:
+        "200":
+          description: Registered
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RegisterResult"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /v1/agents/{slug}/heartbeat:
+    post:
+      tags: [agents]
+      operationId: heartbeatAgent
+      summary: Mark an agent as live
+      description: The shim calls this every 20 seconds while connected.
+      security:
+        - joinToken: []
+        - agentToken: []
+      parameters:
+        - $ref: "#/components/parameters/Slug"
+      responses:
+        "200":
+          description: Liveness updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HeartbeatResult"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/agents:
+    get:
+      tags: [agents]
+      operationId: findAgents
+      summary: Discovery, ranked like covey_find
+      description: Without `need`, lists all agents that are not `gone`, unranked.
+      parameters:
+        - name: need
+          in: query
+          schema: { type: string, maxLength: 1000 }
+        - name: capability
+          in: query
+          schema: { type: string }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 50, default: 5 }
+      responses:
+        "200":
+          description: Ranked matches
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FindResult"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /v1/agents/{slug}/card:
+    put:
+      tags: [agents]
+      operationId: describeAgent
+      summary: Update the descriptive parts of a card (covey_describe)
+      description: An agent token may update only its own card. Identity, liveness and delivery fields are set by register, not here.
+      parameters:
+        - $ref: "#/components/parameters/Slug"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DescribeBody"
+      responses:
+        "200":
+          description: Updated card
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CardResult"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/agents/{slug}/inbox:
+    get:
+      tags: [requests]
+      operationId: getInbox
+      summary: Requests addressed to one agent, oldest first
+      description: An agent token may read only its own inbox.
+      parameters:
+        - $ref: "#/components/parameters/Slug"
+        - name: status
+          in: query
+          description: Defaults to the open statuses (queued, delivered, working, needs_input).
+          schema:
+            $ref: "#/components/schemas/RequestStatus"
+      responses:
+        "200":
+          description: Pending requests
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RequestList"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/whoami:
+    get:
+      tags: [agents]
+      operationId: whoami
+      summary: The caller's own card, node id and liveness (covey_whoami)
+      responses:
+        "200":
+          description: Caller identity
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WhoamiResult"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /v1/requests:
+    post:
+      tags: [requests]
+      operationId: createRequest
+      summary: Delegate work to another agent (covey_ask)
+      description: |
+        Returns immediately. A `forbidden` capability is answered with status `refused`.
+        A `gated` capability without a matching grant is created in `awaiting_grant` and
+        raises an approval. Refused with 422 when the inherited `hops` would exceed 4.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AskBody"
+      responses:
+        "201":
+          description: Request created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RequestResult"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+
+  /v1/requests/{request_id}:
+    get:
+      tags: [requests]
+      operationId: getRequest
+      summary: Read or long-poll a request (covey_wait)
+      description: An agent token may read only requests it sent or received.
+      parameters:
+        - $ref: "#/components/parameters/RequestId"
+        - name: wait
+          in: query
+          description: Seconds to block until the request reaches a final status.
+          schema: { type: integer, minimum: 0, maximum: 600, default: 0 }
+      responses:
+        "200":
+          description: Current state of the request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RequestResult"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/requests/{request_id}/reply:
+    post:
+      tags: [requests]
+      operationId: replyRequest
+      summary: Deliver a result (covey_reply)
+      description: |
+        Only the target may reply. Idempotent on request_id: a repeated identical reply
+        returns the stored result. For a gated capability the grant is re-checked here;
+        if it no longer holds, the reply is refused with 403 and the request fails.
+      parameters:
+        - $ref: "#/components/parameters/RequestId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReplyBody"
+      responses:
+        "200":
+          description: Reply stored
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RequestResult"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /v1/grants:
+    get:
+      tags: [grants]
+      operationId: listGrants
+      summary: List grants
+      description: An agent token sees only grants where it is the requester or the target.
+      parameters:
+        - name: requester
+          in: query
+          schema: { type: string }
+        - name: target
+          in: query
+          schema: { type: string }
+      responses:
+        "200":
+          description: Grants
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GrantList"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    post:
+      tags: [grants]
+      operationId: createGrant
+      summary: Create or replace a grant (human only, unix socket only)
+      description: Replaces any existing grant for the same (requester, target, capability).
+      security:
+        - humanToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GrantBody"
+      responses:
+        "201":
+          description: Grant created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GrantResult"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/HumanOnly" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/grants/{grant_id}:
+    delete:
+      tags: [grants]
+      operationId: revokeGrant
+      summary: Revoke a grant (human only, unix socket only)
+      security:
+        - humanToken: []
+      parameters:
+        - name: grant_id
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/Ulid"
+      responses:
+        "200":
+          description: Grant revoked
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GrantResult"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/HumanOnly" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/approvals:
+    get:
+      tags: [approvals]
+      operationId: listApprovals
+      summary: Pending approvals, optionally long-polled (human only, unix socket only)
+      description: An approval is a request in `awaiting_grant`; it has no id of its own.
+      security:
+        - humanToken: []
+      parameters:
+        - name: wait
+          in: query
+          description: Seconds to block until at least one approval is pending.
+          schema: { type: integer, minimum: 0, maximum: 600, default: 0 }
+      responses:
+        "200":
+          description: Requests awaiting a grant
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RequestList"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/HumanOnly" }
+
+  /v1/approvals/{request_id}:
+    post:
+      tags: [approvals]
+      operationId: answerApproval
+      summary: Approve or deny a pending request (human only, unix socket only)
+      description: |
+        Creates the grant for the request's (requester, target, capability) with the given
+        scope, then moves the request on: `deny` refuses it, any other scope queues it for
+        delivery. 409 when the request is no longer awaiting a grant.
+      security:
+        - humanToken: []
+      parameters:
+        - $ref: "#/components/parameters/RequestId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ApprovalBody"
+      responses:
+        "200":
+          description: Approval answered
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApprovalResult"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/HumanOnly" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /v1/log:
+    get:
+      tags: [log]
+      operationId: getLog
+      summary: Audit and transcript queries (covey_log)
+      description: An agent token sees only threads it took part in.
+      parameters:
+        - name: thread
+          in: query
+          schema:
+            $ref: "#/components/schemas/Ulid"
+        - name: agent
+          in: query
+          schema: { type: string }
+        - name: since
+          in: query
+          schema: { type: string, format: date-time }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 500, default: 50 }
+      responses:
+        "200":
+          description: Matching requests and audit events
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LogResult"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /v1/events:
+    get:
+      tags: [log]
+      operationId: streamEvents
+      summary: Server-sent events of everything above (human only, unix socket only)
+      description: |
+        The TUI's live feed. Each event's `data` is one JSON object shaped like an
+        AuditEvent, including the `covey` field.
+      security:
+        - humanToken: []
+      responses:
+        "200":
+          description: Event stream
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/HumanOnly" }
+
+components:
+  securitySchemes:
+    humanToken:
+      type: http
+      scheme: bearer
+      description: Contents of ~/.covey/token. Unix socket only; refused from an agent's process tree.
+    joinToken:
+      type: http
+      scheme: bearer
+      description: Contents of ~/.covey/join-token. Register and heartbeat only.
+    agentToken:
+      type: http
+      scheme: bearer
+      description: Minted by registerAgent. Acts as one agent.
+
+  parameters:
+    Slug:
+      name: slug
+      in: path
+      required: true
+      schema:
+        $ref: "#/components/schemas/Slug"
+    RequestId:
+      name: request_id
+      in: path
+      required: true
+      schema:
+        $ref: "#/components/schemas/Ulid"
+
+  responses:
+    BadRequest:
+      description: The body or parameters are invalid
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Unauthorized:
+      description: Missing or unknown token
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Forbidden:
+      description: The token is valid but may not act on this resource
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    HumanOnly:
+      description: |
+        Human-only operation called over TCP, without the human token, or from a process
+        whose ancestry includes an agent session. The error says to run the `covey` CLI
+        from the user's own terminal.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    NotFound:
+      description: No such agent, request or grant
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Conflict:
+      description: The resource is in a state that does not allow this call
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Unprocessable:
+      description: Well-formed but refused by a rule (for example the hops limit)
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+
+  schemas:
+    Version:
+      description: API major version, on every response.
+      const: "1"
+
+    Ulid:
+      type: string
+      pattern: "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+
+    Slug:
+      type: string
+      pattern: "^[a-z0-9][a-z0-9_-]{0,62}$"
+
+    AgentId:
+      type: string
+      description: "`<slug>@<node_id>`"
+      pattern: "^[a-z0-9][a-z0-9_-]{0,62}@[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+
+    Card:
+      $ref: "./card.json"
+
+    Capability:
+      $ref: "./card.json#/$defs/capability"
+
+    Liveness:
+      enum: [live, wakeable, gone]
+
+    RequestStatus:
+      enum: [queued, awaiting_grant, delivered, working, needs_input, done, failed, refused, expired]
+
+    GrantScope:
+      enum: [once, session, always, deny]
+
+    Artifact:
+      type: object
+      additionalProperties: false
+      required: [kind, path_or_url]
+      properties:
+        kind: { type: string, examples: [diff, log, report] }
+        path_or_url: { type: string }
+        note: { type: string }
+
+    Error:
+      type: object
+      required: [covey, error]
+      properties:
+        covey: { $ref: "#/components/schemas/Version" }
+        error:
+          type: object
+          required: [code, message, next_step]
+          properties:
+            code:
+              type: string
+              description: Stable machine-readable code, e.g. `slug_live`, `human_only`, `hops_exceeded`.
+            message:
+              type: string
+              description: What went wrong, for a person or an agent to read.
+            next_step:
+              type: string
+              description: What to do about it.
+
+    RegisterBody:
+      type: object
+      additionalProperties: false
+      required: [slug, kind, delivery]
+      properties:
+        slug: { $ref: "#/components/schemas/Slug" }
+        kind: { type: string, minLength: 1, maxLength: 64 }
+        workdir: { type: string }
+        summary: { type: string, maxLength: 1000, default: "" }
+        tags:
+          type: array
+          items: { type: string }
+          default: []
+        capabilities:
+          type: array
+          items: { $ref: "#/components/schemas/Capability" }
+          default: []
+        instructions: { type: string, maxLength: 4000 }
+        delivery: { enum: [hooks, webhook, poll, spawn] }
+        webhook_url: { type: string, format: uri }
+        wakeable: { type: boolean, default: false }
+        session_id:
+          type: string
+          description: The host's session id, if it has one (Claude Code's `session_id`).
+
+    RegisterResult:
+      type: object
+      required: [covey, card, agent_token]
+      properties:
+        covey: { $ref: "#/components/schemas/Version" }
+        card: { $ref: "#/components/schemas/Card" }
+        agent_token:
+          type: string
+          description: Shown once. The daemon keeps only its hash.
+
+    HeartbeatResult:
+      type: object
+      required: [covey, liveness, last_seen]
+      properties:
+        covey: { $ref: "#/components/schemas/Version" }
+        liveness: { $ref: "#/components/schemas/Liveness" }
+        last_seen: { type: string, format: date-time }
+
+    DescribeBody:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        summary: { type: string, maxLength: 1000 }
+        tags:
+          type: array
+          items: { type: string }
+        capabilities:
+          type: array
+          items: { $ref: "#/components/schemas/Capability" }
+        instructions: { type: string, maxLength: 4000 }
+
+    CardResult:
+      type: object
+      required: [covey, card]
+      properties:
+        covey: { $ref: "#/components/schemas/Version" }
+        card: { $ref: "#/components/schemas/Card" }
+
+    WhoamiResult:
+      type: object
+      required: [covey, card, node_id, liveness]
+      properties:
+        covey: { $ref: "#/components/schemas/Version" }
+        card: { $ref: "#/components/schemas/Card" }
+        node_id: { $ref: "#/components/schemas/Ulid" }
+        liveness: { $ref: "#/components/schemas/Liveness" }
+
+    FindResult:
+      type: object
+      required: [covey, matches]
+      properties:
+        covey: { $ref: "#/components/schemas/Version" }
+        matches:
+          type: array
+          items:
+            type: object
+            required: [card, score, why]
+            properties:
+              card: { $ref: "#/components/schemas/Card" }
+              score: { type: number }
+              why:
+                type: string
+                description: One line on why this agent matched.
+
+    AskBody:
+      type: object
+      additionalProperties: false
+      required: [to, task, capability]
+      properties:
+        to:
+          type: string
+          description: Target slug, or `human`.
+        task: { type: string, minLength: 1 }
+        capability: { type: string }
+        context: { type: string }
+        thread_id: { $ref: "#/components/schemas/Ulid" }
+        parent_id:
+          $ref: "#/components/schemas/Ulid"
+          description: The request this one continues; its thread and hops are inherited.
+        timeout_s:
+          type: integer
+          minimum: 1
+          maximum: 86400
+          description: Sets the request's deadline.
+
+    Request:
+      type: object
+      required:
+        - request_id
+        - thread_id
+        - from_agent
+        - to_agent
+        - capability
+        - task
+        - status
+        - hops
+        - created_at
+        - updated_at
+      properties:
+        request_id: { $ref: "#/components/schemas/Ulid" }
+        thread_id: { $ref: "#/components/schemas/Ulid" }
+        parent_id:
+          oneOf:
+            - $ref: "#/components/schemas/Ulid"
+            - type: "null"
+        from_agent: { $ref: "#/components/schemas/AgentId" }
+        to_agent: { $ref: "#/components/schemas/AgentId" }
+        capability: { type: string }
+        task: { type: string }
+        context: { type: [string, "null"] }
+        status: { $ref: "#/components/schemas/RequestStatus" }
+        result: { type: [string, "null"] }
+        artifacts:
+          type: array
+          items: { $ref: "#/components/schemas/Artifact" }
+        hops: { type: integer, minimum: 0, maximum: 4 }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        deadline: { type: [string, "null"], format: date-time }
+
+    RequestResult:
+      type: object
+      required: [covey, request]
+      properties:
+        covey: { $ref: "#/components/schemas/Version" }
+        request: { $ref: "#/components/schemas/Request" }
+
+    RequestList:
+      type: object
+      required: [covey, requests]
+      properties:
+        covey: { $ref: "#/components/schemas/Version" }
+        requests:
+          type: array
+          items: { $ref: "#/components/schemas/Request" }
+
+    ReplyBody:
+      type: object
+      additionalProperties: false
+      required: [result, status]
+      properties:
+        result:
+          type: string
+          description: Markdown, optionally with a small JSON block.
+        status: { enum: [done, failed, needs_input] }
+        artifacts:
+          type: array
+          items: { $ref: "#/components/schemas/Artifact" }
+
+    Grant:
+      type: object
+      required: [grant_id, requester, target, capability, scope, created_by, created_at]
+      properties:
+        grant_id: { $ref: "#/components/schemas/Ulid" }
+        requester: { $ref: "#/components/schemas/AgentId" }
+        target: { $ref: "#/components/schemas/AgentId" }
+        capability:
+          type: string
+          description: A capability name, or `*` when the human broadened the grant on purpose.
+        scope: { $ref: "#/components/schemas/GrantScope" }
+        session_id:
+          type: [string, "null"]
+          description: For `session` scope, the target session the grant is tied to.
+        created_by: { $ref: "#/components/schemas/AgentId" }
+        created_at: { type: string, format: date-time }
+        expires_at: { type: [string, "null"], format: date-time }
+
+    GrantBody:
+      type: object
+      additionalProperties: false
+      required: [requester, target, capability, scope]
+      properties:
+        requester: { type: string, description: Requester slug. }
+        target: { type: string, description: Target slug. }
+        capability: { type: string }
+        scope: { $ref: "#/components/schemas/GrantScope" }
+        expires_at: { type: string, format: date-time }
+
+    GrantResult:
+      type: object
+      required: [covey, grant]
+      properties:
+        covey: { $ref: "#/components/schemas/Version" }
+        grant: { $ref: "#/components/schemas/Grant" }
+
+    GrantList:
+      type: object
+      required: [covey, grants]
+      properties:
+        covey: { $ref: "#/components/schemas/Version" }
+        grants:
+          type: array
+          items: { $ref: "#/components/schemas/Grant" }
+
+    ApprovalBody:
+      type: object
+      additionalProperties: false
+      required: [scope]
+      properties:
+        scope: { $ref: "#/components/schemas/GrantScope" }
+
+    ApprovalResult:
+      type: object
+      required: [covey, request, grant]
+      properties:
+        covey: { $ref: "#/components/schemas/Version" }
+        request: { $ref: "#/components/schemas/Request" }
+        grant: { $ref: "#/components/schemas/Grant" }
+
+    AuditEvent:
+      type: object
+      required: [covey, id, ts, actor, event]
+      properties:
+        covey: { $ref: "#/components/schemas/Version" }
+        id: { type: integer }
+        ts: { type: string, format: date-time }
+        actor: { $ref: "#/components/schemas/AgentId" }
+        event:
+          type: string
+          examples: [request.created, grant.created, approval.answered, worker.spawned]
+        subject:
+          type: [string, "null"]
+          description: The id of the request, grant or agent the event is about.
+        detail:
+          type: object
+
+    LogResult:
+      type: object
+      required: [covey, requests, events]
+      properties:
+        covey: { $ref: "#/components/schemas/Version" }
+        requests:
+          type: array
+          items: { $ref: "#/components/schemas/Request" }
+        events:
+          type: array
+          items: { $ref: "#/components/schemas/AuditEvent" }

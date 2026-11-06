@@ -1,0 +1,132 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:covey:schema:card:1",
+  "title": "Covey agent card",
+  "description": "What an agent publishes about itself. Stored whole by the daemon and returned by discovery. Breaking changes bump the `covey` major version.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "covey",
+    "agent_id",
+    "slug",
+    "kind",
+    "summary",
+    "tags",
+    "capabilities",
+    "delivery",
+    "wakeable",
+    "liveness",
+    "last_seen",
+    "public_key"
+  ],
+  "properties": {
+    "covey": {
+      "description": "Card format major version.",
+      "const": "1"
+    },
+    "agent_id": {
+      "description": "`<slug>@<node_id>`; node_id is a 26-character ULID.",
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9_-]{0,62}@[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+    },
+    "slug": {
+      "description": "Human-chosen name, unique per node. `human` is reserved for the human pseudo-agent.",
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9_-]{0,62}$"
+    },
+    "kind": {
+      "description": "What sort of agent this is, e.g. `claude-code`, `openclaw`, `python`, `human`. Free text so new kinds are not a breaking change.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "workdir": {
+      "description": "Absolute path the agent works in, if it has one.",
+      "type": "string",
+      "minLength": 1
+    },
+    "summary": {
+      "description": "One or two sentences on what this agent knows and owns. Discovery ranks against it.",
+      "type": "string",
+      "maxLength": 1000
+    },
+    "tags": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 64
+      },
+      "maxItems": 50,
+      "uniqueItems": true
+    },
+    "capabilities": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/capability"
+      },
+      "maxItems": 100
+    },
+    "instructions": {
+      "description": "Optional free text for peers: how to phrase requests, what this agent will not do.",
+      "type": "string",
+      "maxLength": 4000
+    },
+    "delivery": {
+      "description": "How the daemon gets a request in front of this agent.",
+      "enum": ["hooks", "webhook", "poll", "spawn"]
+    },
+    "webhook_url": {
+      "description": "Called on new requests. Required when delivery is `webhook`.",
+      "type": "string",
+      "format": "uri"
+    },
+    "wakeable": {
+      "description": "Whether the daemon may spawn a headless worker for this agent when no session is attached.",
+      "type": "boolean"
+    },
+    "liveness": {
+      "enum": ["live", "wakeable", "gone"]
+    },
+    "last_seen": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "public_key": {
+      "description": "Reserved for signed identities in v2. Always null in v1.",
+      "type": ["string", "null"]
+    }
+  },
+  "if": {
+    "properties": {
+      "delivery": {
+        "const": "webhook"
+      }
+    },
+    "required": ["delivery"]
+  },
+  "then": {
+    "required": ["webhook_url"]
+  },
+  "$defs": {
+    "capability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "level"],
+      "properties": {
+        "name": {
+          "description": "Capability name, e.g. `explain`, `run_tests`. `*` is not allowed in a card; wildcards exist only in grants.",
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9_.-]{0,63}$"
+        },
+        "level": {
+          "enum": ["open", "gated", "forbidden"]
+        },
+        "note": {
+          "type": "string",
+          "maxLength": 200
+        }
+      }
+    }
+  }
+}
