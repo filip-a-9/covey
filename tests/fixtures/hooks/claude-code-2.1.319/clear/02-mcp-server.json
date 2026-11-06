@@ -1,0 +1,109 @@
+{
+  "event": "mcp-server",
+  "pid": 253161,
+  "ppid_chain": [
+    {
+      "pid": 252799,
+      "cmd": "claude "
+    }
+  ],
+  "cwd": "/projects/covey-lab",
+  "env": {
+    "CLAUDECODE": "1",
+    "CLAUDE_CODE_ENTRYPOINT": "cli",
+    "CLAUDE_CODE_SESSION_ID": "55dd98d8-26b3-444c-8514-71d0231ea6b3",
+    "CLAUDE_EFFORT": "medium",
+    "CLAUDE_PID": "223058",
+    "CLAUDE_PROJECT_DIR": "/projects/covey-lab"
+  },
+  "mcp_messages": [
+    {
+      "jsonrpc": "2.0",
+      "id": "server-discover-probe-1",
+      "method": "server/discover",
+      "params": {
+        "_meta": {
+          "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+          "io.modelcontextprotocol/clientInfo": {
+            "name": "claude-code",
+            "title": "Claude Code",
+            "version": "2.1.319",
+            "description": "Anthropic's agentic coding tool",
+            "websiteUrl": "https://claude.com/claude-code"
+          },
+          "io.modelcontextprotocol/clientCapabilities": {
+            "roots": {
+              "listChanged": true
+            },
+            "elicitation": {
+              "form": {},
+              "url": {}
+            },
+            "extensions": {
+              "io.modelcontextprotocol/tasks": {}
+            }
+          }
+        }
+      }
+    },
+    {
+      "method": "initialize",
+      "params": {
+        "protocolVersion": "2025-11-25",
+        "capabilities": {
+          "roots": {
+            "listChanged": true
+          },
+          "elicitation": {
+            "form": {},
+            "url": {}
+          }
+        },
+        "clientInfo": {
+          "name": "claude-code",
+          "title": "Claude Code",
+          "version": "2.1.319",
+          "description": "Anthropic's agentic coding tool",
+          "websiteUrl": "https://claude.com/claude-code"
+        }
+      },
+      "jsonrpc": "2.0",
+      "id": 0
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "notifications/initialized"
+    },
+    {
+      "method": "tools/list",
+      "jsonrpc": "2.0",
+      "id": 1
+    },
+    {
+      "method": "tools/call",
+      "params": {
+        "name": "lab_ping",
+        "arguments": {},
+        "_meta": {
+          "claudecode/toolUseId": "toolu_01WDJCtcvDb2Agn2LDddhRtF",
+          "progressToken": 2
+        }
+      },
+      "jsonrpc": "2.0",
+      "id": 2
+    },
+    {
+      "method": "tools/call",
+      "params": {
+        "name": "lab_ping",
+        "arguments": {},
+        "_meta": {
+          "claudecode/toolUseId": "toolu_01P8JpubKZaNYmqzEUTPZEdL",
+          "progressToken": 3
+        }
+      },
+      "jsonrpc": "2.0",
+      "id": 3
+    }
+  ]
+}

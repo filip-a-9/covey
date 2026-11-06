@@ -1,0 +1,32 @@
+{
+  "event": "SessionEnd",
+  "pid": 254591,
+  "ppid_chain": [
+    {
+      "pid": 254590,
+      "cmd": "/bin/sh -c python3 \"$CLAUDE_PROJECT_DIR/dump_hook.py\" SessionEnd "
+    },
+    {
+      "pid": 252799,
+      "cmd": "claude "
+    }
+  ],
+  "cwd": "/projects/covey-lab",
+  "env": {
+    "CLAUDECODE": "1",
+    "CLAUDE_CODE_ENTRYPOINT": "cli",
+    "CLAUDE_CODE_SESSION_ID": "b2ab683e-10ed-45d1-9e23-f4bd486657ff",
+    "CLAUDE_EFFORT": "medium",
+    "CLAUDE_PID": "252799",
+    "CLAUDE_PROJECT_DIR": "/projects/covey-lab"
+  },
+  "stdin": {
+    "session_id": "b2ab683e-10ed-45d1-9e23-f4bd486657ff",
+    "transcript_path": "/home/USER/.claude/projects/-projects-covey-lab/b2ab683e-10ed-45d1-9e23-f4bd486657ff.jsonl",
+    "cwd": "/projects/covey-lab",
+    "scratchpad_dir": "/tmp/claude-UID/-projects-covey-lab/b2ab683e-10ed-45d1-9e23-f4bd486657ff/scratchpad",
+    "prompt_id": "2ecc9fec-73a5-43e6-a117-57a3302eb4a4",
+    "hook_event_name": "SessionEnd",
+    "reason": "prompt_input_exit"
+  }
+}

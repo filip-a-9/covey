@@ -1,0 +1,39 @@
+{
+  "event": "Stop",
+  "pid": 254164,
+  "ppid_chain": [
+    {
+      "pid": 254163,
+      "cmd": "/bin/sh -c python3 \"$CLAUDE_PROJECT_DIR/dump_hook.py\" Stop "
+    },
+    {
+      "pid": 252799,
+      "cmd": "claude "
+    }
+  ],
+  "cwd": "/projects/covey-lab",
+  "env": {
+    "CLAUDECODE": "1",
+    "CLAUDE_CODE_ENTRYPOINT": "cli",
+    "CLAUDE_CODE_SESSION_ID": "55dd98d8-26b3-444c-8514-71d0231ea6b3",
+    "CLAUDE_EFFORT": "medium",
+    "CLAUDE_PID": "252799",
+    "CLAUDE_PROJECT_DIR": "/projects/covey-lab"
+  },
+  "stdin": {
+    "session_id": "55dd98d8-26b3-444c-8514-71d0231ea6b3",
+    "transcript_path": "/home/USER/.claude/projects/-projects-covey-lab/55dd98d8-26b3-444c-8514-71d0231ea6b3.jsonl",
+    "cwd": "/projects/covey-lab",
+    "scratchpad_dir": "/tmp/claude-UID/-projects-covey-lab/55dd98d8-26b3-444c-8514-71d0231ea6b3/scratchpad",
+    "prompt_id": "346a3a93-043e-4ace-8aaf-7f37c9cc018a",
+    "permission_mode": "default",
+    "effort": {
+      "level": "medium"
+    },
+    "hook_event_name": "Stop",
+    "stop_hook_active": false,
+    "last_assistant_message": "I pinged the lab with `lab_ping` and it answered `pong`.\n\nYour PostToolUse hook also ran after each tool call and gave the canary word: **pelican**.",
+    "background_tasks": [],
+    "session_crons": []
+  }
+}

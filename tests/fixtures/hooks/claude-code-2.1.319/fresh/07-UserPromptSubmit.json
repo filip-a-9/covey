@@ -1,0 +1,32 @@
+{
+  "event": "UserPromptSubmit",
+  "pid": 251763,
+  "ppid_chain": [
+    {
+      "pid": 251762,
+      "cmd": "/bin/sh -c python3 \"$CLAUDE_PROJECT_DIR/dump_hook.py\" UserPromptSubmit "
+    },
+    {
+      "pid": 250898,
+      "cmd": "claude "
+    }
+  ],
+  "cwd": "/projects/covey-lab",
+  "env": {
+    "CLAUDECODE": "1",
+    "CLAUDE_CODE_ENTRYPOINT": "cli",
+    "CLAUDE_CODE_SESSION_ID": "9624e4dc-cfb2-4bd3-8476-3b02dc83fb2b",
+    "CLAUDE_PID": "250898",
+    "CLAUDE_PROJECT_DIR": "/projects/covey-lab"
+  },
+  "stdin": {
+    "session_id": "9624e4dc-cfb2-4bd3-8476-3b02dc83fb2b",
+    "transcript_path": "/home/USER/.claude/projects/-projects-covey-lab/9624e4dc-cfb2-4bd3-8476-3b02dc83fb2b.jsonl",
+    "cwd": "/projects/covey-lab",
+    "scratchpad_dir": "/tmp/claude-UID/-projects-covey-lab/9624e4dc-cfb2-4bd3-8476-3b02dc83fb2b/scratchpad",
+    "prompt_id": "0af5e58c-0275-407c-948c-11ed1be1a816",
+    "permission_mode": "auto",
+    "hook_event_name": "UserPromptSubmit",
+    "prompt": "Did any hook or system context mention a canary word? Quote it exactly, or say none"
+  }
+}

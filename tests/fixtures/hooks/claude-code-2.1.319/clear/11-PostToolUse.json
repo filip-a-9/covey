@@ -1,0 +1,49 @@
+{
+  "event": "PostToolUse",
+  "pid": 254486,
+  "ppid_chain": [
+    {
+      "pid": 254484,
+      "cmd": "/bin/sh -c python3 \"$CLAUDE_PROJECT_DIR/dump_hook.py\" PostToolUse "
+    },
+    {
+      "pid": 252799,
+      "cmd": "claude "
+    }
+  ],
+  "cwd": "/projects/covey-lab",
+  "env": {
+    "CLAUDECODE": "1",
+    "CLAUDE_CODE_ENTRYPOINT": "cli",
+    "CLAUDE_CODE_SESSION_ID": "b2ab683e-10ed-45d1-9e23-f4bd486657ff",
+    "CLAUDE_EFFORT": "medium",
+    "CLAUDE_PID": "252799",
+    "CLAUDE_PROJECT_DIR": "/projects/covey-lab"
+  },
+  "stdin": {
+    "session_id": "b2ab683e-10ed-45d1-9e23-f4bd486657ff",
+    "transcript_path": "/home/USER/.claude/projects/-projects-covey-lab/b2ab683e-10ed-45d1-9e23-f4bd486657ff.jsonl",
+    "cwd": "/projects/covey-lab",
+    "scratchpad_dir": "/tmp/claude-UID/-projects-covey-lab/b2ab683e-10ed-45d1-9e23-f4bd486657ff/scratchpad",
+    "prompt_id": "896e6dfe-86ca-41d5-8896-ec3068368eb1",
+    "permission_mode": "default",
+    "effort": {
+      "level": "medium"
+    },
+    "hook_event_name": "PostToolUse",
+    "tool_name": "mcp__lab__lab_ping",
+    "tool_input": {},
+    "tool_response": [
+      {
+        "type": "text",
+        "text": "pong"
+      }
+    ],
+    "tool_use_id": "toolu_01P8JpubKZaNYmqzEUTPZEdL",
+    "duration_ms": 37,
+    "mcp_server": {
+      "name": "lab",
+      "source": "project"
+    }
+  }
+}
