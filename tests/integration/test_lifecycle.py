@@ -218,3 +218,49 @@ def test_down_never_signals_a_process_that_is_not_coveyd(cli_env):
     finally:
         bystander.kill()
         bystander.wait()
+
+
+# ---- launch.ensure_daemon: what the shim uses, without Typer or the human token ------
+
+
+def test_ensure_daemon_starts_one_and_leaves_a_running_one_alone(cli_env):
+    from covey import config
+    from covey.launch import daemon_answers, ensure_daemon
+
+    cfg = config.load()
+    assert not daemon_answers(cfg)
+    ensure_daemon(cfg)
+    assert daemon_answers(cfg)
+    pid = int((cli_env / "coveyd.pid").read_text())
+    ensure_daemon(cfg)
+    assert int((cli_env / "coveyd.pid").read_text()) == pid
+    assert run("down").exit_code == 0
+
+
+def test_ensure_daemon_failure_names_the_fix_and_the_log(cli_env):
+    from covey import config
+    from covey.launch import LaunchError, ensure_daemon
+
+    with socket.socket() as blocker:
+        blocker.bind(("127.0.0.1", 0))
+        blocker.listen()
+        os.environ["COVEY_PORT"] = str(blocker.getsockname()[1])
+        with pytest.raises(LaunchError) as exc:
+            ensure_daemon(config.load())
+    assert "COVEY_PORT" in str(exc.value)
+    assert "coveyd.log" in str(exc.value)
+
+
+def test_two_shims_starting_the_daemon_at_once_both_get_it(cli_env):
+    import concurrent.futures
+
+    from covey import config
+    from covey.launch import daemon_answers, ensure_daemon
+
+    cfg = config.load()
+    with concurrent.futures.ThreadPoolExecutor(3) as pool:
+        futures = [pool.submit(ensure_daemon, cfg) for _ in range(3)]
+        errors = [f.exception(30) for f in futures]
+    assert errors == [None, None, None]
+    assert daemon_answers(cfg)
+    assert run("down").exit_code == 0

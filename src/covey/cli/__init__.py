@@ -3,8 +3,6 @@
 import json
 import os
 import signal
-import subprocess
-import sys
 import time
 from typing import Annotated, Any
 
@@ -14,6 +12,7 @@ import typer
 from covey import config as config_module
 from covey.cli.client import human_client
 from covey.config import Config, ConfigError
+from covey.launch import LaunchError, ensure_daemon, pid_alive, read_pid
 
 app = typer.Typer(
     help="Covey: a local agent mesh.", no_args_is_help=True, add_completion=False
@@ -43,28 +42,6 @@ def fail(as_json: bool, message: str, **extra: Any) -> typer.Exit:
     return typer.Exit(1)
 
 
-def read_pid(cfg: Config) -> int | None:
-    try:
-        return int(cfg.pid_path.read_text().strip())
-    except (OSError, ValueError):
-        return None
-
-
-def pid_alive(pid: int) -> bool:
-    try:
-        if os.waitpid(pid, os.WNOHANG)[0] == pid:  # our own exited child: reap it
-            return False
-    except ChildProcessError:
-        pass  # not our child, the normal case across two `covey` runs
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
-    return True
-
-
 def whoami(cfg: Config) -> dict[str, Any] | None:
     """GET /v1/whoami as the human; None if the daemon does not answer."""
     if not cfg.socket_path.exists() or not cfg.token_path.exists():
@@ -75,13 +52,6 @@ def whoami(cfg: Config) -> dict[str, Any] | None:
     except httpx.HTTPError:
         return None
     return r.json() if r.status_code == 200 else None
-
-
-def last_log_lines(cfg: Config, n: int = 15) -> str:
-    try:
-        return "\n".join(cfg.log_path.read_text(errors="replace").splitlines()[-n:])
-    except OSError:
-        return "(no log yet)"
 
 
 def running_info(cfg: Config) -> dict[str, Any] | None:
@@ -115,40 +85,21 @@ def up(
 
         main()
         return
-    cfg.home.mkdir(mode=0o700, parents=True, exist_ok=True)
-    with open(cfg.log_path, "ab") as log:
-        child = subprocess.Popen(
-            [sys.executable, "-m", "covey.daemon"],
-            stdin=subprocess.DEVNULL,
-            stdout=log,
-            stderr=log,
-            start_new_session=True,
+    try:
+        ensure_daemon(cfg)
+    except LaunchError as exc:
+        raise fail(as_json, str(exc), log=str(cfg.log_path)) from exc
+    info = running_info(cfg)
+    if info is None:
+        raise fail(
+            as_json,
+            f"coveyd answers but refuses the human token in {cfg.token_path}. Either that "
+            "file belongs to another daemon (check COVEY_HOME), or this command runs inside "
+            "an agent session: run `covey up` from your own terminal. "
+            f"Log: {cfg.log_path}",
+            log=str(cfg.log_path),
         )
-    deadline = time.monotonic() + 10
-    while time.monotonic() < deadline:
-        if child.poll() is not None:
-            raise fail(
-                as_json,
-                f"coveyd exited with code {child.returncode}. Last log lines:\n"
-                f"{last_log_lines(cfg)}\nFix the problem above, then run `covey up` again. "
-                f"Full log: {cfg.log_path}",
-                log=str(cfg.log_path),
-            )
-        info = running_info(cfg)
-        if info:
-            out(
-                as_json,
-                info,
-                f"coveyd is running (pid {info['pid']}, port {cfg.port}).",
-            )
-            return
-        time.sleep(0.1)
-    raise fail(
-        as_json,
-        f"coveyd did not answer within 10 s. Check the log at {cfg.log_path}, "
-        "then run `covey down` and `covey up` again.",
-        log=str(cfg.log_path),
-    )
+    out(as_json, info, f"coveyd is running (pid {info['pid']}, port {cfg.port}).")
 
 
 @app.command()
@@ -262,3 +213,11 @@ def log(
         )
     payload = r.json()
     out(as_json, payload, format_log(payload))
+
+
+@app.command()
+def mcp() -> None:
+    """Run the MCP stdio server for this session (Claude Code starts this, not you)."""
+    from covey.mcp.server import main  # lazy: the rest of the CLI skips the MCP SDK
+
+    main()

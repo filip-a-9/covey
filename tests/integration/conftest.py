@@ -1,10 +1,12 @@
 """Integration fixtures: a real daemon running in-process."""
 
 import asyncio
+import contextlib
 import shutil
 import socket
 import tempfile
 import threading
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -46,9 +48,9 @@ def short_home():
     shutil.rmtree(home, ignore_errors=True)
 
 
-@pytest.fixture
-def daemon(short_home) -> RunningDaemon:
-    cfg = Config(home=short_home / "h", port=free_port(), sweep_interval_s=0.2)
+@contextlib.contextmanager
+def run_daemon(cfg: Config) -> Iterator[RunningDaemon]:
+    """A real daemon on `cfg`, served in a background thread until the block exits."""
     ready_flag = threading.Event()
     failure: list[BaseException] = []
     handles: dict = {}
@@ -78,13 +80,22 @@ def daemon(short_home) -> RunningDaemon:
     assert ready_flag.wait(15), "daemon did not become ready"
     if failure:
         raise failure[0]
-    yield RunningDaemon(
-        cfg=cfg,
-        human_token=cfg.token_path.read_text().strip(),
-        join_token=cfg.join_token_path.read_text().strip(),
-        socket_path=str(cfg.socket_path),
-        base_url=f"http://127.0.0.1:{cfg.port}",
-    )
-    handles["loop"].call_soon_threadsafe(handles["stop"].set)
-    thread.join(15)
-    assert not thread.is_alive(), "daemon did not stop"
+    try:
+        yield RunningDaemon(
+            cfg=cfg,
+            human_token=cfg.token_path.read_text().strip(),
+            join_token=cfg.join_token_path.read_text().strip(),
+            socket_path=str(cfg.socket_path),
+            base_url=f"http://127.0.0.1:{cfg.port}",
+        )
+    finally:
+        handles["loop"].call_soon_threadsafe(handles["stop"].set)
+        thread.join(15)
+        assert not thread.is_alive(), "daemon did not stop"
+
+
+@pytest.fixture
+def daemon(short_home) -> Iterator[RunningDaemon]:
+    cfg = Config(home=short_home / "h", port=free_port(), sweep_interval_s=0.2)
+    with run_daemon(cfg) as running:
+        yield running

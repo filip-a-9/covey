@@ -1,0 +1,129 @@
+"""Who this shim is: its slug, the `claude` process it serves, and the token file hooks read.
+
+Rules (docs/SPEC.md, "How hooks authenticate"):
+- Slug: `COVEY_AGENT` if set, else the working directory's name squeezed into the slug pattern.
+- The `claude` process is the nearest ancestor whose argv0 is `claude`; a launcher such as
+  `uv run` may sit in between. Its pid survives `/clear`, unlike the session id.
+- The token file is `<COVEY_HOME>/sessions/claude-<pid>.json`, mode 0600, and carries the
+  process start time so a recycled pid does not match.
+"""
+
+import json
+import os
+import re
+import subprocess
+import sys
+from collections.abc import Mapping
+from pathlib import Path
+from typing import TypedDict
+
+from covey.config import Config
+
+
+class IdentityError(Exception):
+    def __init__(self, message: str, next_step: str):
+        super().__init__(message)
+        self.message = message
+        self.next_step = next_step
+
+
+class ClaudeProcess(TypedDict):
+    pid: int
+    start_time: str
+
+
+def derive_slug(env: Mapping[str, str], cwd: Path) -> str:
+    explicit = env.get("COVEY_AGENT")
+    if explicit:
+        return explicit
+    slug = re.sub(r"[^a-z0-9_-]+", "-", cwd.name.lower()).lstrip("_-")[:63]
+    if not slug:
+        raise IdentityError(
+            f"Cannot make an agent name from the directory name {cwd.name!r}.",
+            "Set COVEY_AGENT=<slug> in this session's MCP server env "
+            "(lowercase letters, digits, - and _).",
+        )
+    return slug
+
+
+def _parent_and_argv0(pid: int) -> tuple[int, str] | None:
+    if sys.platform == "linux":
+        try:
+            stat = Path(f"/proc/{pid}/stat").read_text()
+            argv = Path(f"/proc/{pid}/cmdline").read_bytes().split(b"\0")
+        except OSError:
+            return None
+        # The command name in field 2 may contain spaces; fields after the last ")" do not.
+        return int(stat.rsplit(")", 1)[1].split()[1]), argv[0].decode(errors="replace")
+    out = _ps(pid, "ppid=,comm=")
+    if out is None:
+        return None
+    ppid, _, comm = out.partition(" ")
+    return int(ppid), comm.strip()
+
+
+def _start_time(pid: int) -> str | None:
+    if sys.platform == "linux":
+        try:
+            stat = Path(f"/proc/{pid}/stat").read_text()
+        except OSError:
+            return None
+        return stat.rsplit(")", 1)[1].split()[19]  # field 22, starttime in clock ticks
+    return _ps(pid, "lstart=")
+
+
+def _ps(pid: int, fields: str) -> str | None:
+    try:
+        out = subprocess.run(
+            ["ps", "-o", fields, "-p", str(pid)],
+            capture_output=True,
+            text=True,
+            timeout=2,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return out.stdout.strip() or None
+
+
+def find_claude(pid: int) -> ClaudeProcess | None:
+    """The nearest process named `claude` at or above `pid`, or None."""
+    seen = 0
+    while pid > 1 and seen < 32:
+        found = _parent_and_argv0(pid)
+        if found is None:
+            return None
+        parent, argv0 = found
+        if os.path.basename(argv0) == "claude":
+            start = _start_time(pid)
+            return None if start is None else {"pid": pid, "start_time": start}
+        pid, seen = parent, seen + 1
+    return None
+
+
+def session_file(cfg: Config, claude: ClaudeProcess) -> Path:
+    return cfg.home / "sessions" / f"claude-{claude['pid']}.json"
+
+
+def write_session_file(
+    cfg: Config, claude: ClaudeProcess, slug: str, agent_token: str
+) -> Path:
+    sessions = cfg.home / "sessions"
+    sessions.mkdir(mode=0o700, parents=True, exist_ok=True)
+    sessions.chmod(0o700)  # mkdir's mode only applies when it creates the directory
+    path = session_file(cfg, claude)
+    tmp = path.with_suffix(".tmp")
+    tmp.unlink(missing_ok=True)  # O_CREAT's mode only applies to a new file
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "w") as f:
+        json.dump(
+            {
+                "slug": slug,
+                "agent_token": agent_token,
+                "claude_pid": claude["pid"],
+                "claude_start_time": claude["start_time"],
+            },
+            f,
+        )
+    os.replace(tmp, path)
+    return path

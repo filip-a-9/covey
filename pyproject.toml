@@ -8,6 +8,7 @@ dependencies = [
     "fastapi==0.162.0",
     "httpx==0.28.1",
     "jsonschema==4.26.0",
+    "mcp==2.3.0",
     "typer==0.28.0",
     "uvicorn==0.54.0",
 ]
