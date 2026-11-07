@@ -356,8 +356,22 @@ def assert_reply_message(lines, rid, status):
     assert RESULT not in content and TASK not in content
 
 
+def reply_posted_rows(human, rid):
+    events = human.get("/v1/log", params={"thread": rid}).json()["events"]
+    return [e for e in events if e["event"] == "request.reply_posted"]
+
+
+def wait_for_reply_posted(human, rid, timeout=3.0):
+    end = time.monotonic() + timeout
+    while time.monotonic() < end:
+        if rows := reply_posted_rows(human, rid):
+            return rows
+        time.sleep(0.05)
+    return []
+
+
 def test_a_reply_nobody_waits_on_is_posted_once_to_the_asker(
-    tcp, wake_daemon, asker_fake
+    tcp, human, wake_daemon, asker_fake
 ):
     web = register(tcp, wake_daemon, "web", asker_fake.path)
     api = register(tcp, wake_daemon, "api")
@@ -367,10 +381,24 @@ def test_a_reply_nobody_waits_on_is_posted_once_to_the_asker(
     messages = asker_fake.wait_for(1)
     assert len(messages) == 1
     assert_reply_message(messages[0], rid, "done")
+    rows = wait_for_reply_posted(human, rid)
+    assert len(rows) == 1
+    assert rows[0]["detail"] == {"agent": req["from_agent"]}
+    assert rows[0]["actor"].startswith("coveyd@")
 
     reply(tcp, api, rid)  # an identical repeat is not a new status
     time.sleep(SETTLE_S)
     assert len(asker_fake.messages) == 1
+    assert len(reply_posted_rows(human, rid)) == 1
+
+
+def test_a_failed_reply_post_writes_no_audit_row(tcp, human, wake_daemon, short_home):
+    web = register(tcp, wake_daemon, "web", str(short_home / "gone.sock"))
+    api = register(tcp, wake_daemon, "api")
+    rid = ask(tcp, web)["request_id"]
+    reply(tcp, api, rid)
+    time.sleep(SETTLE_S)
+    assert reply_posted_rows(human, rid) == []
 
 
 def test_a_reply_while_a_wait_is_open_posts_nothing(tcp, wake_daemon, asker_fake):

@@ -207,6 +207,12 @@ class Daemon:
             router.release_wake_claim(self.conn, rid)
             await self.notify()
 
+    async def _post_reply(self, asker: str, path: str, rid: str, text: str) -> None:
+        if await self._post(asker, path, text):
+            actor = store.daemon_actor(self.node.node_id)
+            store.audit(self.conn, actor, "request.reply_posted", rid, {"agent": asker})
+            await self.notify()
+
     async def _post(self, agent_id: str, path: str, text: str) -> bool:
         """Post `text` to a wake socket; on failure drop the socket and return False."""
         try:
@@ -236,7 +242,9 @@ class Daemon:
         text = frames.reply_message(
             request["to_agent"].partition("@")[0], rid, request["status"]
         )
-        task = asyncio.get_running_loop().create_task(self._post(asker, path, text))
+        task = asyncio.get_running_loop().create_task(
+            self._post_reply(asker, path, rid, text)
+        )
         self.wake_tasks.add(task)
         task.add_done_callback(self.wake_tasks.discard)
 
