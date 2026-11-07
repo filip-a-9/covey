@@ -172,5 +172,6 @@ def test_grant_rows_are_api_shaped(conn, pair):
         "created_by",
         "created_at",
         "expires_at",
+        "request_id",
     }
     assert store.now_iso() >= row["created_at"]

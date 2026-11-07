@@ -56,7 +56,8 @@ def _set_status(
     result: str | None = None,
     artifacts: list[dict[str, Any]] | None = None,
 ) -> None:
-    """Update status (and result/artifacts when given). The caller audits."""
+    """Update status (and result/artifacts when given). The caller audits. A request that
+    finishes releases the `once` grant tied to it."""
     conn.execute(
         "UPDATE requests SET status = ?, result = COALESCE(?, result),"
         " artifacts = COALESCE(?, artifacts), updated_at = ? WHERE request_id = ?",
@@ -68,6 +69,13 @@ def _set_status(
             request_id,
         ),
     )
+    if status in FINAL_STATUSES:
+        node = conn.execute(
+            "SELECT to_agent FROM requests WHERE request_id = ?", (request_id,)
+        ).fetchone()["to_agent"]
+        grants.release_for_request(
+            conn, request_id, store.daemon_actor(node.split("@", 1)[1])
+        )
 
 
 def _level(agent: dict[str, Any], capability: str) -> str | None:
@@ -450,7 +458,11 @@ def reply(
                 level,
                 req["capability"],
                 grants.matching_grants(
-                    conn, req["from_agent"], req["to_agent"], req["capability"]
+                    conn,
+                    req["from_agent"],
+                    req["to_agent"],
+                    req["capability"],
+                    request_id,
                 ),
                 _live_session(target),
                 store.now_iso(),
@@ -466,7 +478,11 @@ def reply(
             store.audit(
                 conn, replier, "request.replied", request_id, {"status": status}
             )
-            if used is not None and status in ("done", "failed"):
+            if (
+                used is not None
+                and used["request_id"] is None
+                and status in ("done", "failed")
+            ):
                 grants.consume(conn, used, replier)
     if revoked:
         raise CoveyError(
@@ -558,6 +574,7 @@ def answer_approval(
             scope,
             human,
             session_id=_live_session(target),
+            request_id=request_id if scope == "once" else None,
         )
         if scope == "deny":
             _set_status(conn, request_id, "refused", "denied_by_human")

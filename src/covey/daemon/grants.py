@@ -64,11 +64,17 @@ def _as_dict(row: sqlite3.Row) -> dict[str, Any]:
 
 
 def matching_grants(
-    conn: sqlite3.Connection, requester: str, target: str, capability: str
+    conn: sqlite3.Connection,
+    requester: str,
+    target: str,
+    capability: str,
+    request_id: str | None = None,
 ) -> list[dict[str, Any]]:
+    """Grants that may apply. A grant bound to a request applies to that request only."""
     rows = conn.execute(
-        "SELECT * FROM grants WHERE requester = ? AND target = ? AND capability IN (?, '*')",
-        (requester, target, capability),
+        "SELECT * FROM grants WHERE requester = ? AND target = ? AND capability IN (?, '*')"
+        " AND (request_id IS NULL OR request_id = ?)",
+        (requester, target, capability, request_id),
     )
     return [_as_dict(r) for r in rows]
 
@@ -110,8 +116,10 @@ def create_grant(
     created_by: str,
     session_id: str | None = None,
     expires_at: str | None = None,
+    request_id: str | None = None,
 ) -> dict[str, Any]:
-    """Create a grant, replacing any for the same (requester, target, capability)."""
+    """Create a grant. Without `request_id` it replaces any for the same (requester, target,
+    capability); with one (a `once` grant for that request) it sits beside the others."""
     if not _is_human(created_by):
         raise CoveyError(
             403,
@@ -142,16 +150,19 @@ def create_grant(
         "created_by": created_by,
         "created_at": store.now_iso(),
         "expires_at": expires_at,
+        "request_id": request_id,
     }
     with store.transaction(conn):
-        conn.execute(
-            "DELETE FROM grants WHERE requester = ? AND target = ? AND capability = ?",
-            (requester, target, capability),
-        )
+        if request_id is None:
+            conn.execute(
+                "DELETE FROM grants WHERE requester = ? AND target = ? AND capability = ?",
+                (requester, target, capability),
+            )
         conn.execute(
             "INSERT INTO grants (grant_id, requester, target, capability, scope, session_id,"
-            " created_by, created_at, expires_at) VALUES (:grant_id, :requester, :target,"
-            " :capability, :scope, :session_id, :created_by, :created_at, :expires_at)",
+            " created_by, created_at, expires_at, request_id) VALUES (:grant_id, :requester,"
+            " :target, :capability, :scope, :session_id, :created_by, :created_at,"
+            " :expires_at, :request_id)",
             row,
         )
         store.audit(conn, created_by, "grant.created", row["grant_id"], row)
@@ -180,3 +191,14 @@ def consume(conn: sqlite3.Connection, grant: Mapping[str, Any], actor: str) -> N
     with store.transaction(conn):
         conn.execute("DELETE FROM grants WHERE grant_id = ?", (grant["grant_id"],))
         store.audit(conn, actor, "grant.consumed", grant["grant_id"], dict(grant))
+
+
+def release_for_request(conn: sqlite3.Connection, request_id: str, actor: str) -> None:
+    """A request finished in any state: delete the `once` grant tied to it, if any."""
+    with store.transaction(conn):
+        rows = conn.execute(
+            "SELECT * FROM grants WHERE request_id = ?", (request_id,)
+        ).fetchall()
+        for row in rows:
+            conn.execute("DELETE FROM grants WHERE grant_id = ?", (row["grant_id"],))
+            store.audit(conn, actor, "grant.consumed", row["grant_id"], dict(row))

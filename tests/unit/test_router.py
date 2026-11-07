@@ -841,3 +841,49 @@ def test_release_wake_claim_frees_one_request_at_once(conn, world):
     assert router.release_wake_claim(conn, a["request_id"]) is False
     assert stamped(conn, a["request_id"]) is None
     assert stamped(conn, b["request_id"]) is not None
+
+
+def approve_once(conn, world, request):
+    return router.answer_approval(conn, request["request_id"], "once", world["human"])
+
+
+def test_once_approval_does_not_outlive_an_expired_request(conn, world):
+    a = ask(conn, world, "deploy", timeout_s=1)
+    approve_once(conn, world, a)
+    router.expire_due(conn, "9999-01-01T00:00:00.000Z")
+    assert router.get_request(conn, a["request_id"])["status"] == "expired"
+    assert grants.list_grants(conn, world["alice"], world["bob"]) == []
+    assert ask(conn, world, "deploy")["status"] == "awaiting_grant"
+
+
+def test_once_approval_does_not_outlive_a_failed_worker(conn, world):
+    a = ask(conn, world, "deploy")
+    approve_once(conn, world, a)
+    assert router.fail_open(conn, a["request_id"], "worker_lost", world["bob"])
+    assert grants.list_grants(conn, world["alice"], world["bob"]) == []
+    assert ask(conn, world, "deploy")["status"] == "awaiting_grant"
+
+
+def test_once_approval_is_used_up_by_the_done_reply(conn, world):
+    a = ask(conn, world, "deploy")
+    approve_once(conn, world, a)
+    router.reply(conn, a["request_id"], world["bob"], "ok", "done")
+    assert grants.list_grants(conn, world["alice"], world["bob"]) == []
+
+
+def test_once_approval_of_a_second_request_leaves_the_first_one_valid(conn, world):
+    first = ask(conn, world, "deploy")
+    second = ask(conn, world, "deploy")
+    approve_once(conn, world, first)
+    approve_once(conn, world, second)
+    done1 = router.reply(conn, first["request_id"], world["bob"], "x", "done")
+    done2 = router.reply(conn, second["request_id"], world["bob"], "x", "done")
+    assert (done1["status"], done2["status"]) == ("done", "done")
+    assert grants.list_grants(conn, world["alice"], world["bob"]) == []
+
+
+def test_once_approval_covers_only_its_own_request(conn, world):
+    a = ask(conn, world, "deploy")
+    approve_once(conn, world, a)
+    b = ask(conn, world, "deploy")
+    assert b["status"] == "awaiting_grant"
