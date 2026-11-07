@@ -455,7 +455,7 @@ Core first because everything else is a client of it; the shim and hooks start o
 
 **Open technical questions to answer in week one with experiments, not debate:**
 
-1. How reliably does a `Stop` hook `block` wake a session that the user has walked away from, and does it count against anything? Measure on a real session for an afternoon.
+1. ~~How reliably does a `Stop` hook `block` wake a session that the user has walked away from, and does it count against anything?~~ Reliably on Claude Code 2.1.319 (2026-11-07, `tests/fixtures/hooks/claude-code-2.1.319/walkaway/`). Over 3 h with nobody at the keyboard, 18/18 requests were replied to on the first offer (median 4.7 s, max 5.6 s). After a 20-minute freeze of the daemon and both sessions, 8/8 were replied to (median 4.8 s, 5.6 s for the first ask after resume). Every request was delivered by the wake post, so none relied on a `Stop` block. Not yet observed: a real host sleep and resume.
 2. ~~Does `PostToolUse` `additionalContext` land in the model's context?~~ Yes on Claude Code 2.1.319 (fixtures in `tests/fixtures/hooks/`). The hook fires after built-in tools such as `ToolSearch` too, so it adds its note only when the inbox has something waiting.
 3. ~~Is `claude -p` with an MCP server configured fast enough to start that a spawned worker answers a simple `explain` request in under 20 seconds?~~ Yes on Claude Code 2.1.319: about 8 s (see "How workers run"), so no warm worker.
 4. Ranking: does token overlap find the right agent among eight realistic cards? Write eight cards and twenty queries before writing the ranker.
