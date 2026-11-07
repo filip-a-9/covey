@@ -1,6 +1,6 @@
 """Waker: serve requests for a `wakeable` agent with no session by spawning a headless worker.
 
-SPEC.md "Delivery", path 3, and .claude/specs/spawner.md. Evidence for every flag is in
+SPEC.md "Delivery", path 3, and "How workers run". Evidence for every flag is in
 tests/fixtures/worker/. This part is pure: the argv, the worker's mcp.json and reading the
 single JSON object `claude -p --output-format json` prints.
 

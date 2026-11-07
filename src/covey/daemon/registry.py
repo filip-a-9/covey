@@ -4,7 +4,7 @@ Every function takes an open connection and joins the caller's transaction if th
 The `agents.liveness` and `agents.last_seen` columns are authoritative; `card_of()` returns
 the stored card with those two fields copied in. Errors are `CoveyError`.
 
-Rules for this slice (docs/SPEC.md "Data model & wire protocol", .claude/specs/core-daemon.md):
+Rules for this slice (docs/SPEC.md "Data model & wire protocol" and "Core concepts"):
 - Register builds the full card from the RegisterBody and validates it against
   `schema/card.json` (400 `invalid_card`). Slugs `human` and `coveyd` are reserved (409 `slug_reserved`).
   A slug whose holder is `live` is refused (409 `slug_live`); otherwise the caller takes it

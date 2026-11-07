@@ -2,8 +2,7 @@
 ──────────────────────────────────────────────────
  Accessing workspace:
 
- /tmp/claude-1000/-projects-covey/9bf7d04e-4898-4
- d81-884c-03e7871150b7/scratchpad/d/api
+ /SCRATCH/d/api
 
  Quick safety check: Is this a project you
  created or one you trust? (Like your own code, a
@@ -44,5 +43,5 @@
 ────────────────────────────────────────────────────────────────────────────────────────────────────
 ❯ Write a spec to make currency optional
 ────────────────────────────────────────────────────────────────────────────────────────────────────
-  …/scratchpad/d/api  main  ·  Sonnet 5.5  ·  ░░░░░░░░░ ctx 4%  ·  5h 2% resets 20:10
+  /SCRATCH/d/api  main  ·  Sonnet 5.5  ·  ░░░░░░░░░ ctx 4%  ·  5h 2% resets 20:10
   ⏸ manual mode on · ← 1 agent

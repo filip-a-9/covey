@@ -1,7 +1,5 @@
 # Covey — Spec & Design
 
-Nov 6, 2026
-
 ## The pitch
 
 **Covey is a local daemon that lets every AI agent on your machine discover, message, and delegate to every other one, with scoped permissions a human can see and approve.** It runs on the user's own machine, with the user's own API keys, and no server of yours anywhere. Any MCP-capable agent joins by adding one line of config.
@@ -9,48 +7,6 @@ Nov 6, 2026
 **The problem.** A developer in late 2026 already runs several agents at once: two or three Claude Code sessions in different repos, an OpenClaw assistant, maybe a Cursor window and a few Python scripts. These agents are complete strangers to each other. Session A cannot ask session B "how does your repo's auth module work?"; it has to re-explore from zero. OpenClaw's "multi-agent" support is a static allowlist in a JSON file with no discovery, stateless sub-agents, no shared-state locking and no budget tracking; people route agent-to-agent messages through Discord to work around it. Google's A2A protocol is the official answer to agent interop, but it is built for enterprise agent networks, its own advocates admit production retention is thin, and security (agent identity, scoped authorization, delegation tracking) is still described as its biggest unresolved question. For individuals and small teams, the A2A guidance is literally "just use MCP."
 
 **Why now.** Three things lined up in the last twelve months. MCP became the universal socket: every serious agent speaks it, so a daemon that *is* an MCP server gets distribution for free. Multi-agent-on-one-machine became the normal case rather than a demo. And the GitHub trend moved from "an agent" to "agent infrastructure" (memory layers, skills, access tools); the repos that broke out in October 2026 are all layers other agents plug into, not agents themselves. Discovery and delegation is the one obvious layer nobody has shipped for the personal/local case.
-
-**Why it can win.** The join cost is one config line, the demo is visceral (two terminals, one asks the other for help, it happens), and the trust story (scoped grants, human approval, an audit trail) is the exact thing the enterprise standard is missing, built at a scale where it can actually be used. The protocol is designed so that the same daemon later peers across a LAN or Tailscale with no redesign.
-
-Sources: [A2A adoption, hype and reality (2026)](https://www.glukhov.org/ai-systems/comparisons/a2a-protocol-2026-adoption/), [Linux Foundation: A2A surpasses 150 organizations](https://www.linuxfoundation.org/press/a2a-protocol-surpasses-150-organizations-lands-in-major-cloud-platforms-and-sees-enterprise-production-use-in-first-year), [Multi-agent architectures in OpenClaw, research compendium](https://gist.github.com/mmarcus006/8b3bb89cb213b6d4359bf1bb928079b3), [GitHub trending October 2026: agent architecture](https://www.coddykit.com/pages/blog-detail?id=5129956&slug=github-trending-october-2026-5-open-source-repos-that-are-redefining-ai-agent-ar).
-
-## Name & positioning
-
-**Recommended name: Covey.** A covey is a small flock of birds that feed and move together. It is short, one word, easy to say, free on PyPI as of today (`pip install covey`, `uvx covey`), and it gives you a whole vocabulary: agents *join the covey*, `covey ps` lists who is around, `coveyd` is the daemon, a cross-machine group is still just a covey. Logo: three small bird silhouettes in a loose triangle.
-
-*Update 2026-11-07: `covey` was taken on PyPI by an empty project by release time, so the package is published as `covey-mesh`. The command, daemon and import name stay `covey`.*
-
-Alternates checked against PyPI today:
-
-| Name | PyPI | Why / why not |
-| --- | --- | --- |
-| covey | free | Short, warm, unused; the recommendation |
-| starlings | free | Murmuration imagery is gorgeous (thousands coordinating with no leader), but plural package names feel awkward |
-| flockd | free | Clear, but `flock` is a Unix command and name collisions will confuse |
-| hive / colony / guild / murmur / kith | taken | murmur is also the Mumble server; the rest are generic or occupied |
-
-**Tagline:** "Give your agents each other." Secondary: "Discovery, delegation and permissions for the agents already running on your machine."
-
-**One-sentence positioning against the two things people will compare it to.** Against A2A: *Covey is what you run on your laptop; A2A is what your company's platform team runs. Covey will speak A2A at the edge later, but it exists because A2A has no story for a person with five agents and one machine.* Against OpenClaw's sub-agents: *OpenClaw coordinates OpenClaw; Covey coordinates everything, OpenClaw included, and it does discovery and permissions instead of a static allowlist.*
-
-**Category name to own:** "agent mesh." Use it in the README's first line, the repo description, and the HN title. The goal is that in six months "local agent mesh" is a phrase people search and Covey is the first result.
-
-## Hero demo & launch scenario
-
-**The demo is a 40-second terminal recording: two Claude Code sessions in two repos, one asks the other for help, the human approves one permission, the work happens.** Everything in v1 exists to make this recording true and repeatable.
-
-The setup on screen is three panes. Left: Claude Code in `~/code/api` (a backend). Right: Claude Code in `~/code/web` (the frontend that consumes it). Bottom: `covey top`, the live TUI showing both agents registered with their cards.
-
-1. In `web`, the user types: *"The /orders endpoint started returning 422 for me. Figure out why and fix our client."*
-2. The `web` agent calls `covey_find("owns the orders API")`. The TUI flashes the query. Covey returns the `api` agent's card: name, repo, capabilities (`explain`, `search`, `run_tests`), what it will and won't do.
-3. The `web` agent calls `covey_ask(to="api", task="What changed in the /orders request schema recently and why would a client get 422?")`. The TUI shows a request moving left.
-4. The `api` session was idle. Its Stop hook sees the pending request, blocks the idle, and the `api` agent reads its own git log, finds yesterday's commit that made `currency` required, and replies with the diff and the reason.
-5. The `web` agent now wants to run `api`'s test suite against its proposed client change. `run_tests` is a *gated* capability, so the TUI pops an approval: *"web wants to run tests in api (shell). Allow once / always / deny."* The human presses `a`.
-6. Tests run in `api`, pass, `web` applies the fix, and both agents' conversation is visible in `covey log` as a threaded exchange with timestamps.
-
-What the viewer should feel: the agents were already there, they just couldn't see each other, and now they can, with the human still holding the keys. The GIF ends on the TUI showing two agents, one completed request, one approved grant.
-
-**Two follow-up GIFs for the README,** recorded after launch week: an OpenClaw assistant on Telegram asking a Claude Code agent to fix a bug in a repo ("the personal agent recruits the specialist"), and two Docker containers each running `coveyd`, peering over a bridge network, with an agent in one offloading to the other ("the mesh is real").
 
 ## Core concepts
 
@@ -104,7 +60,7 @@ Agents reach the daemon through MCP (Claude Code, OpenClaw, Cursor) or plain HTT
 
 **The core is four small modules sharing one SQLite file.** Registry holds cards and liveness. Router creates requests, assigns them to threads, tracks status and stores results. Grants decides whether a request may proceed and raises approval prompts when it may not. Waker decides how to get a request in front of its target: deliver to a live session's inbox, or spawn a headless worker. SQLite in WAL mode is enough for one machine and gives you durable requests, a free audit log and `covey log` queries for nothing.
 
-**Why Python.** It is your fastest stack, the MCP SDK and Textual (for the TUI) are mature, and the daemon's work is IO-bound coordination, not compute. Startup time matters for the shim, so the shim stays dependency-light; `uvx covey` makes installation a single command.
+**Why Python.** The MCP SDK and Textual (for the TUI) are mature, and the daemon's work is IO-bound coordination, not compute. Startup time matters for the shim, so the shim stays dependency-light; `uvx covey` makes installation a single command.
 
 ## The MCP tool surface
 
@@ -317,7 +273,7 @@ Keys: `/` filter, `enter` open a request's full transcript, `g` grants view, `l`
 
 ## Scope: v1, v1.1, v2, non-goals
 
-**v1 ships when the hero demo can be recorded in one take on a fresh machine using only `uv tool install covey-mesh && covey init`.** (`uvx` alone can't work: hooks need a `covey` that outlives uv's temporary environment.) Anything not needed for that is cut.
+**v1 ships when the two-repo demo (`examples/two-repos`) can be recorded in one take on a fresh machine using only `uv tool install covey-mesh && covey init`.** (`uvx` alone can't work: hooks need a `covey` that outlives uv's temporary environment.) Anything not needed for that is cut.
 
 **v1 (launch):**
 
@@ -331,10 +287,10 @@ Keys: `/` filter, `enter` open a request's full transcript, `g` grants view, `l`
 - Docs: README with the GIF, a five-minute quickstart, a "how delivery works" page (people will ask), and the card schema.
 - Tests: unit tests on router and grants, an integration test that runs two fake agents over the HTTP API end to end, and a recorded hook fixture suite using real Claude Code hook payloads.
 
-**v1.1 (the week after launch, driven by what people ask for):**
+**v1.1 (driven by what people ask for):**
 
-- Cross-node peering: `covey peer add <host>` with a shared secret, mDNS advertisement on the LAN, request forwarding between daemons. The two-container demo GIF.
-- OpenClaw adapter: a documented recipe plus a webhook delivery mode, and the Telegram-to-Claude-Code demo GIF.
+- Cross-node peering: `covey peer add <host>` with a shared secret, mDNS advertisement on the LAN, request forwarding between daemons.
+- OpenClaw adapter: a documented recipe plus a webhook delivery mode.
 - Generic MCP-client recipes for Cursor, Codex CLI and OpenCode (they can already join; this is docs and a `covey init --client cursor` flag).
 
 **v2 (the "standard" play, only if v1 gets traction):**
@@ -352,7 +308,7 @@ Keys: `/` filter, `enter` open a request's full transcript, `g` grants view, `l`
 - Covey is not a hosted service and will not have accounts, a cloud registry or a marketplace. Anything that needs a server you operate is out.
 - Covey does not try to be a general message bus for applications. Agents, their requests, and the human are the only participants.
 
-## Repo layout, stack, build milestones
+## Repo layout, stack, milestones
 
 **One Python package, `covey`, installable with `uv`, with the daemon, shim, CLI, TUI and SDK all inside it.** A single package keeps `uv tool install covey` a one-liner and avoids version skew between the pieces; the SDK is importable as `covey.sdk` without pulling in Textual.
 
@@ -385,24 +341,6 @@ covey/
 
 **Stack, chosen for speed and small surface:** Python 3.11+, FastAPI + uvicorn for the daemon, the official `mcp` Python SDK for the shim, `httpx` everywhere, `sqlite3` from the standard library (no ORM; the schema is five tables), Typer for the CLI, Textual for the TUI, `plyer` optional for notifications, `pytest` + `pytest-asyncio`. CI on GitHub Actions for Linux and macOS; Windows support is best-effort in v1 (named pipes instead of unix sockets is a v1.1 item). Release with `uv build` and trusted publishing to PyPI; tag-driven.
 
-**Build order and dates**, assuming you start Monday Nov 10, work on it full time, and Claude Code writes most of the code. The schedule is paced by the things Claude Code cannot speed up: experiments on real sessions, the self-dogfood week and demo polish, not typing:
-
-```text
-BUILD PLAN (start Mon 2026-11-10; you + Claude Code full time)
-
-  Core daemon + HTTP API ........ Nov 10 - Nov 13
-  MCP shim, hooks, spawner ...... Nov 12 - Nov 19   (main risk: start early, test on real sessions)
-  CLI + TUI ..................... Nov 17 - Nov 24
-  Trust and approvals ........... Nov 19 - Nov 24
-  Python SDK + tests ............ Nov 21 - Nov 26
-  Docs + hero GIF ............... Nov 24 - Nov 28
-  Self-dogfood week ............. Nov 28 - Dec 7
-  HN + X launch ................. Tue Dec 8, 2026   (go/no-go Dec 5; slip date: Jan 12, 2027)
-  v1.1 cross-node peering ....... Dec 9 - Dec 18
-```
-
-Core first because everything else is a client of it; the shim and hooks start on day three because their reliability is the main risk and needs days of real use, not hours; trust lands before the TUI is finished so the approval card is designed against real approval events; one week of self-dogfooding on the maintainer's own repos; and HN launch is Tuesday Dec 8, 2026, two weeks before the December attention trough. If the walk-away run loses a request and the fix is not in by Dec 5, slip the launch to Jan 12, 2027 rather than launching into the holidays.
-
 **Definition of done per workstream:**
 
 1. Core daemon: `curl` can register two agents, create a request, long-poll it, and reply; `covey log` shows the thread; 90% of router and grants logic covered by unit tests.
@@ -412,48 +350,9 @@ Core first because everything else is a client of it; the shim and hooks start o
 5. SDK + tests: `examples/python-agent` joins and answers requests in under 40 lines; integration suite runs in CI on Linux and macOS.
 6. Docs + hero GIF: a stranger can go from nothing to the demo in five minutes following the quickstart; the GIF is recorded with `vhs` from a script in `examples/two-repos` so it can be re-recorded after every UI change.
 
-## Launch plan
+## Design decisions
 
-**The launch is one GIF, one sentence, and a README that answers the three questions every HN commenter will ask in the first ten minutes: how does it wake an idle session, why not A2A, and what can go wrong.** Since you said distribution is not your edge, the plan leans on the artifact doing the talking and on the maintainer's own week of daily use producing the first honest notes.
-
-**README structure, top to bottom:** the one-liner ("Covey is a local agent mesh: discovery, delegation and permissions for the agents already running on your machine"), the hero GIF, a three-line install (`uv tool install covey-mesh && covey init`, open two Claude Code sessions, ask one to ask the other), a "How it works" section with the delivery diagram, "Covey vs A2A vs OpenClaw sub-agents" as a short honest table, the trust model in five sentences, the non-goals, and a "Status" line that says exactly what works and what does not. No badges wall, no emoji headers.
-
-**Self-dogfood week (Nov 28 to Dec 7).** Covey runs on the maintainer's own repos every day. There are no beta invites and no outside testers. The week's job is to find the everyday moments where it saves time, and to record a GIF or two of them.
-
-**Launch day, Tuesday Dec 8, 2026.** HN "Show HN" posted between 14:00 and 15:00 Belgrade time (08:00 to 09:00 US East). Title: *Show HN: Covey – a local mesh so your Claude Code sessions can ask each other for help*. The first comment is yours and is technical: how the Stop hook trick works, what the spawn budget is, what the prompt-injection mitigations are, and the explicit non-goals. Same morning: a thread on X with the GIF, a post in the Claude Code Discord, r/ClaudeAI, r/LocalLLaMA (the BYOK and no-server angle plays well there), and a short note to the OpenClaw community with the adapter recipe. Stay at the keyboard for twelve hours answering everything and merging small PRs fast; a repo that visibly responds within minutes on launch day is a repo people star.
-
-**Positioning table for the README:**
-
-|  | Covey | A2A | OpenClaw sub-agents |
-| --- | --- | --- | --- |
-| Runs where | Your machine, no server | Enterprise platforms, cloud | Inside one OpenClaw instance |
-| Joins how | One MCP config line | Implement the spec, serve an Agent Card over HTTP | Edit `openclaw.json` allowlist |
-| Discovery | Semantic, local, ranked | Agent Cards at known URLs | None; static config |
-| Delegation to an idle agent | Hooks or headless spawn | Target must be a running server | Spawns a stateless sub-agent |
-| Permissions | Capability levels + human-approved grants | Delegated to the implementer | Allowlist only |
-| Audit | Built in, `covey log` | Implementer's problem | Not built in |
-| Needs an API key | No | No | Yes (it is the agent) |
-
-**Things that make a repo look alive in week one:** a `CONTRIBUTING.md` with five "good first issues" pre-filed (a Cursor init flag, Windows named pipes, a webhook delivery test, a web UI over the SSE stream, a Go client for the HTTP API), a `ROADMAP.md` that is this document's scope section, GitHub Discussions on, and a changelog that moves every few days.
-
-**What to measure.** There is no telemetry, because an endpoint would be a hosted service. Read adoption from PyPI download stats, GitHub stars, issues and Discussions.
-
-## Risks, open questions, decisions still yours
-
-**The biggest risk is not competition; it is that the Stop-hook delivery feels flaky in practice and the hero demo only works two times out of three.** Everything in the plan front-loads that risk: it is the second workstream, and v1 is not done until the demo records in one take.
-
-| Risk | Likelihood | What we do about it |
-| --- | --- | --- |
-| Claude Code changes hook semantics or the `-p` flags between now and launch | Medium | Hooks live in one module with recorded fixtures; `covey doctor` checks the installed Claude Code version and warns; keep an eye on the changelog weekly |
-| Anthropic ships first-party multi-session coordination in Claude Code | Medium | Covey's value is cross-tool and cross-machine (OpenClaw, Cursor, Python, LAN) plus permissions and audit; lean into "works with everything" from day one so a first-party feature is a complement, not a replacement |
-| Delegated requests become a prompt-injection channel between agents | High in principle, low in a single-user setup | Framed delivery, forbidden capabilities, grant re-check at reply time, audit log; say so loudly in the README so the first security comment on HN is answered before it is asked |
-| Agents over-use `covey_ask` and burn tokens asking each other trivia | Medium | Tool descriptions say when not to use it; `hops` cap; spawn budgets; TUI makes chatter visible |
-| Headless workers run with broad permissions and do something destructive | Low-medium | Workers inherit only the agent's declared allowed tools; `edit` and `shell` are gated; default spawn budget 20/day; never `--dangerously-skip-permissions` |
-| Windows users cannot use unix sockets | Certain | Named pipes in v1.1; v1 README says Linux and macOS |
-| "Agent mesh" sounds like enterprise middleware and bounces individual devs | Medium | Lead with the GIF and "your Claude Code sessions can ask each other for help"; the category word goes second |
-| It stays a cool demo and nobody uses it daily | The real one | The self-dogfood week's job is to find the three everyday moments where it saves time (cross-repo questions, test-running, "ask the agent that owns the infra") and put those, not the architecture, in the README |
-
-**Open technical questions to answer in week one with experiments, not debate:**
+**Questions answered with experiments on real sessions, not debate:**
 
 1. ~~How reliably does a `Stop` hook `block` wake a session that the user has walked away from, and does it count against anything?~~ Reliably on Claude Code 2.1.319 (2026-11-07, `tests/fixtures/hooks/claude-code-2.1.319/walkaway/`). Over 3 h with nobody at the keyboard, 18/18 requests were replied to on the first offer (median 4.7 s, max 5.6 s). After a 20-minute freeze of the daemon and both sessions, 8/8 were replied to (median 4.8 s, 5.6 s for the first ask after resume). Every request was delivered by the wake post, so none relied on a `Stop` block. Not yet observed: a real host sleep and resume.
 2. ~~Does `PostToolUse` `additionalContext` land in the model's context?~~ Yes on Claude Code 2.1.319 (fixtures in `tests/fixtures/hooks/`). The hook fires after built-in tools such as `ToolSearch` too, so it adds its note only when the inbox has something waiting.
@@ -481,11 +380,8 @@ Core first because everything else is a client of it; the shim and hooks start o
 - A trivial run with the MCP server takes about 8 s, which answers open question 3 (under 20 s). One real run against a scratch repo answered correctly in 5.8 s for $0.017.
 - Observed on 2.1.319 (2026-11-07): `--max-turns 2` ends the run with `error_max_turns` after the third turn, so the turn cap, like the budget, stops one turn late (`tests/fixtures/hooks/claude-code-2.1.319/turn-cap/`). Not yet observed: workers on macOS.
 
-**Launch decisions** (settled 2026-11-07):
+**Other decisions** (settled 2026-11-07):
 
 - Name: Covey. The PyPI package is `covey-mesh` (the name `covey` is taken); the GitHub repo is `filip-a-9/covey`.
-- Launch date: Dec 8, 2026, with a go/no-go on Dec 5. It slips to Jan 12, 2027 only if the walk-away run loses a request and the fix is not in by then. The one-week beta became a self-dogfood week (Nov 28 to Dec 7) on the maintainer's own repos; there are no beta invites.
 - Telemetry: none. No ping, no endpoint, because an endpoint is a hosted service. Adoption is read from PyPI download stats, GitHub stars, issues and Discussions.
 - `edit` on another agent's repo: gated; a card can set forbidden.
-
-**What the first commit should be:** the card JSON Schema, the SQLite schema and the OpenAPI file, with no code. Getting those three right is most of the design; everything else is typing.

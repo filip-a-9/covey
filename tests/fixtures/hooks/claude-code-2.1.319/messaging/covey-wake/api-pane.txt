@@ -25,7 +25,7 @@
   My reply: the README says it's settings.toml (README.md:3), but that file doesn't exist. It isn't in the working tree, and it isn't anywhere in git history (the only commit, init, contains just
   README.md). No other file in the repo sets a rate limit, so I couldn't give a line number.
   The README points to a config file that isn't in this repo, so the 120 requests per minute it states isn't backed by any code or config here. Either settings.toml was never committed or it lives
-  somewhere else. I haven't changed anything. If you want it tracked, I can write a spec under .claude/specs/.
+  somewhere else. I haven't changed anything. If you want it tracked, I can write a spec for it.
 ✻ Sautéed for 13s · done 1:28 PM
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 ❯ write the spec for the missing settings.toml

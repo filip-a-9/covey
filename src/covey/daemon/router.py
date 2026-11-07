@@ -8,7 +8,7 @@ Errors are raised as `CoveyError(status, code, message, next_step)`; every messa
 to do next. Request dicts returned from here are shaped like `Request` in api.yaml
 (`artifacts` decoded to a list, everything else as stored).
 
-Decisions for this slice (see .claude/specs/core-daemon.md):
+Decisions for this slice (docs/SPEC.md "Trust model" and "Delivery"):
 - A capability the target never declared is treated as gated (needs a grant / approval).
 - Requests to the human pseudo-agent (slug `human`) need no grant.
 - A `gone` target is refused with 422 `target_unreachable`.
