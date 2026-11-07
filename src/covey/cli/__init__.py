@@ -228,4 +228,23 @@ def mcp() -> None:
     main()
 
 
+@app.command()
+def top() -> None:
+    """Live terminal view of agents, activity and approvals."""
+    try:
+        from covey.tui.app import run  # lazy: Textual is an optional extra
+    except ImportError as exc:
+        typer.echo(
+            "`covey top` needs the tui extra. Install it with `pip install 'covey[tui]'` "
+            "(or `uv sync --extra tui` in a checkout).",
+            err=True,
+        )
+        raise typer.Exit(1) from exc
+    cfg = load_cfg()
+    if whoami(cfg) is None:
+        typer.echo("coveyd is not running. Run `covey up`, then `covey top`.", err=True)
+        raise typer.Exit(1)
+    run(cfg)
+
+
 from covey.cli import commands  # noqa: F401  (registers the commands on `app`)

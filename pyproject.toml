@@ -17,6 +17,11 @@ dependencies = [
 covey = "covey.cli:app"
 coveyd = "covey.daemon.app:main"
 
+[project.optional-dependencies]
+tui = [
+    "textual==8.2.8",
+]
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"

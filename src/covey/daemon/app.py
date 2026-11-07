@@ -30,16 +30,16 @@ from datetime import UTC, datetime
 from typing import Annotated, Any, Literal
 
 import uvicorn
-from fastapi import Depends, FastAPI, Path, Query, Request
+from fastapi import Depends, FastAPI, Header, Path, Query, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from covey import API_VERSION
 from covey import config as config_module
 from covey.config import Config, ConfigError
-from covey.daemon import grants, registry, router, store
+from covey.daemon import events, grants, registry, router, store
 from covey.daemon.errors import CoveyError
 
 Transport = Literal["unix", "tcp"]
@@ -605,6 +605,21 @@ def create_app(cfg: Config) -> FastAPI:
         )
         events = [{"covey": API_VERSION, **e} for e in found["events"]]
         return versioned(requests=found["requests"], events=events)
+
+    @app.get("/v1/events")
+    async def stream_events(
+        who: Annotated[Caller, Depends(require("human"))],
+        last_event_id: Annotated[int | None, Header(ge=0)] = None,
+    ) -> StreamingResponse:
+        daemon = app.state.daemon
+        start = (
+            events.current_last_id(daemon) if last_event_id is None else last_event_id
+        )
+        return StreamingResponse(
+            events.stream(daemon, start),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache"},
+        )
 
     return app
 
