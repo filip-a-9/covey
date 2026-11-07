@@ -37,6 +37,11 @@ To re-record after a UI change, run `./record.sh <dir>` again. Each take wipes t
 database (so an old grant or request can't change what is on screen), rebuilds the two repos and runs `setup.sh`.
 Set `CLAUDE_CMD` to change how claude is launched, for example `CLAUDE_CMD="claude --model sonnet"`.
 
+To keep your own Claude Code setup (`~/.claude` rules, `CLAUDE.md`, hooks) out of the recording, set
+`DEMO_HOME=<empty dir>` and use `<dir>=$DEMO_HOME/code`. The `api` and `web` panes then run with that
+`HOME`, so the sessions show `~/code/api` and `~/code/web`. That home has no login: run `/login`
+in a pane during the first `--dry` rehearsal.
+
 ## Spend cap
 
 `record.sh` allows 3 takes per `<dir>`, rehearsals included (`<dir>/.takes`, log in

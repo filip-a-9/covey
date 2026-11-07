@@ -7,6 +7,8 @@
 #   pane 2 (bottom)     covey top
 # Alt+a / Alt+w / Alt+t (api, web, top) jump to panes 0 / 1 / 2 without a prefix key.
 # Each repo pane has $DEMO_CLAUDE set to the launch command; the tape types `$DEMO_CLAUDE`.
+# DEMO_HOME (optional): the repo panes run with HOME=$DEMO_HOME, so Claude Code loads none of
+# your own ~/.claude (rules, CLAUDE.md, hooks) and shows paths under it as ~/...
 set -euo pipefail
 
 [ $# -eq 1 ] || { echo "usage: layout.sh <dir>" >&2; exit 2; }
@@ -17,6 +19,8 @@ DIR="$(cd "$1" && pwd)"
 . "$HERE/lib.sh"
 load_env "$DIR"
 CLAUDE_CMD="${CLAUDE_CMD:-claude}"
+PANE_HOME=""
+[ -z "${DEMO_HOME:-}" ] || PANE_HOME="export HOME='$(cd "$DEMO_HOME" && pwd)'; "
 T=(tmux -L covey-demo -f /dev/null)
 
 "$COVEY_BIN" up >/dev/null
@@ -45,7 +49,7 @@ for pane in 0:api 1:web; do
   n="${pane%%:*}"
   repo="${pane##*:}"
   "${T[@]}" send-keys -t "covey-demo:demo.$n" \
-    ". '$DIR/env.sh'; export PS1='\$ ' DEMO_CLAUDE='$CLAUDE_CMD'; cd '$DIR/$repo'; clear" Enter
+    "$PANE_HOME. '$DIR/env.sh'; export PS1='\$ ' DEMO_CLAUDE='$CLAUDE_CMD'; cd '$DIR/$repo'; clear" Enter
 done
 "${T[@]}" send-keys -t covey-demo:demo.2 ". '$DIR/env.sh'; clear; exec '$COVEY_BIN' top" Enter
 
