@@ -37,6 +37,8 @@ class Config:
     liveness_timeout_s: float = 60.0
     sweep_interval_s: float = 5.0
     max_hops: int = 4
+    max_body_bytes: int = 1024 * 1024  # larger HTTP bodies get 413, before auth
+    max_open_gated: int = 10  # awaiting_grant requests one requester may have open
     claude_bin: str = "claude"
     worker_model: str = "sonnet"
     # Direct Config(...) callers (tests, embedders) never get a desktop toast; load() says `auto`.

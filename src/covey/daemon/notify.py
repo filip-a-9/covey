@@ -40,6 +40,9 @@ _backend: Backend | None = None
 _resolved = False
 _failed = False
 _threads: list[threading.Thread] = []
+_worker: threading.Thread | None = None
+_waiting = 0  # notifications not yet handed to the backend
+_first_waiting = ""
 
 
 def is_wsl(osrelease: Path = OSRELEASE) -> bool:
@@ -147,7 +150,7 @@ def _deliver(backend: Backend, text: str) -> None:
 
 def human(text: str) -> None:
     """Log `text` and, if a backend works, show it on the desktop. Never blocks."""
-    global _backend, _resolved
+    global _backend, _resolved, _waiting, _first_waiting, _worker
     text = safe(text)  # agent-written workdirs and paths reach coveyd.log and the toast
     logger.warning("%s", text)
     with _lock:
@@ -156,6 +159,29 @@ def human(text: str) -> None:
         backend = None if _failed else _backend
     if backend is None:
         return
-    thread = threading.Thread(target=_deliver, args=(backend, text), daemon=True)
-    _threads.append(thread)
-    thread.start()
+    with _lock:
+        # One toast at a time: what arrives while one is showing is counted, not queued.
+        if not _waiting:
+            _first_waiting = text
+        _waiting += 1
+        if _worker is not None and _worker.is_alive():
+            return
+        _worker = threading.Thread(target=_work, args=(backend,), daemon=True)
+        _threads[:] = [_worker]
+        _worker.start()
+
+
+def _work(backend: Backend) -> None:
+    """The single worker: deliver what is waiting, one toast per round, until nothing is."""
+    global _waiting
+    while True:
+        with _lock:
+            count, first, _waiting = _waiting, _first_waiting, 0
+            if count == 0:
+                return
+        if count == 1:
+            _deliver(backend, first)
+        else:
+            _deliver(
+                backend, f"{count} Covey notifications waiting. Run `covey approvals`."
+            )

@@ -116,3 +116,26 @@ def test_a_failing_backend_is_reported_once_then_only_logged(caplog):
     assert len(failures) == 1
     assert "second" in caplog.text  # still logged
     assert calls == ["first"], "backend retried after failing"
+
+
+def test_a_burst_of_notifications_uses_one_worker_and_coalesces():
+    release = threading.Event()
+    texts, active, peak = [], [0], [0]
+    lock = threading.Lock()
+
+    def slow(text):
+        with lock:
+            active[0] += 1
+            peak[0] = max(peak[0], active[0])
+        release.wait(5)
+        texts.append(text)
+        with lock:
+            active[0] -= 1
+
+    notify.use_backend(slow)
+    for i in range(50):
+        notify.human(f"approval {i}")
+    release.set()
+    notify.drain()
+    assert peak[0] == 1
+    assert 1 <= len(texts) <= 3

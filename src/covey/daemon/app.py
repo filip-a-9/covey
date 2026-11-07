@@ -17,6 +17,7 @@ Long-poll: after every mutating call (and every sweep tick) the app calls
 import asyncio
 import contextlib
 import hmac
+import json
 import logging
 import os
 import secrets
@@ -324,6 +325,81 @@ def tag_transport(app: Any, transport: Transport) -> Callable:
     return wrapped
 
 
+class Limits:
+    """ASGI wrapper, outside auth: refuses a foreign Host on TCP and bodies over the cap.
+
+    Never buffers: a declared Content-Length is checked up front, and a chunked body is
+    cut off once it passes the cap.
+    """
+
+    def __init__(self, app: Any, cfg: Config) -> None:
+        self.app = app
+        self.max_body = cfg.max_body_bytes
+        self.port = cfg.port
+        self.hosts = {f"127.0.0.1:{cfg.port}", f"localhost:{cfg.port}"}
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        headers = dict(scope["headers"])
+        if scope.get("covey_transport", "tcp") == "tcp":
+            host = headers.get(b"host", b"").decode("latin-1").lower()
+            if host not in self.hosts:
+                await self._refuse(
+                    send,
+                    403,
+                    "bad_host",
+                    f"Host {host!r} is not this daemon's address.",
+                    f"Call http://127.0.0.1:{self.port} or http://localhost:{self.port}.",
+                )
+                return
+        declared = headers.get(b"content-length", b"")
+        if declared.isdigit() and int(declared) > self.max_body:
+            await self._refuse(send, 413, *self._too_large())
+            return
+        seen = 0
+        refused = False
+
+        async def counted():
+            nonlocal seen, refused
+            message = await receive()
+            if message["type"] == "http.request" and not refused:
+                seen += len(message.get("body", b""))
+                if seen > self.max_body:
+                    # Answer now and tell the app the client is gone: nothing more is read.
+                    refused = True
+                    await self._refuse(send, 413, *self._too_large())
+                    return {"type": "http.disconnect"}
+            return message
+
+        async def tracked(message):
+            if not refused:
+                await send(message)
+
+        await self.app(scope, counted, tracked)
+
+    def _too_large(self) -> tuple[str, str, str]:
+        return (
+            "body_too_large",
+            f"The request body is over {self.max_body} bytes.",
+            "Send less: keep task, context and result short and put big content in a file.",
+        )
+
+    async def _refuse(self, send, status, code, message, next_step) -> None:
+        body = json.dumps(error_body(code, message, next_step)).encode()
+        start = {
+            "type": "http.response.start",
+            "status": status,
+            "headers": [
+                (b"content-type", b"application/json"),
+                (b"content-length", str(len(body)).encode()),
+            ],
+        }
+        await send(start)
+        await send({"type": "http.response.body", "body": body})
+
+
 def get_daemon(request: Request) -> Daemon:
     return request.app.state.daemon
 
@@ -579,6 +655,7 @@ def forbidden(message: str, next_step: str) -> CoveyError:
 def create_app(cfg: Config, ignore_pids: frozenset[int] = frozenset()) -> FastAPI:
     app = FastAPI(title="coveyd", version=API_VERSION, docs_url=None, redoc_url=None)
     app.state.daemon = Daemon(cfg, ignore_pids)
+    app.add_middleware(Limits, cfg=cfg)
 
     @app.exception_handler(CoveyError)
     async def covey_error(_: Request, exc: CoveyError) -> JSONResponse:
@@ -818,6 +895,7 @@ def create_app(cfg: Config, ignore_pids: frozenset[int] = frozenset()) -> FastAP
                 parent_id=who.worker_request or body.parent_id,
                 timeout_s=body.timeout_s,
                 max_hops=daemon.cfg.max_hops,
+                max_open_gated=daemon.cfg.max_open_gated,
             )
         except CoveyError as exc:
             # Always, even with a watcher: the refused request is never stored, so no TUI shows it.

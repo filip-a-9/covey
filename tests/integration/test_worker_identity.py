@@ -26,7 +26,7 @@ def app(tmp_path):
 
 @pytest.fixture
 def client(app):
-    with TestClient(app) as c:
+    with TestClient(app, base_url="http://127.0.0.1:7777") as c:
         yield c
 
 

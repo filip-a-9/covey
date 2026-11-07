@@ -156,6 +156,7 @@ def create_request(
     parent_id: str | None = None,
     timeout_s: int | None = None,
     max_hops: int = 4,
+    max_open_gated: int = 10,
 ) -> dict[str, Any]:
     """Create a request from `from_agent` (an agent_id) to the agent with slug `to`.
 
@@ -167,6 +168,8 @@ def create_request(
       `from_agent` must be a participant (403); hops = max hops in the thread + 1.
     - Neither: a new thread whose id is the request id, hops 0.
     - hops > max_hops: 422 `hops_exceeded`.
+    - A gated request when `from_agent` already has `max_open_gated` awaiting the human:
+      429 `too_many_pending_approvals`.
     - `timeout_s` sets `deadline` = now + timeout_s.
     Audits `request.created` (and `approval.requested` when it lands in awaiting_grant).
     """
@@ -223,6 +226,19 @@ def create_request(
                 status = "awaiting_grant"
             if status == "refused":
                 result = "capability_refused"
+            if status == "awaiting_grant":
+                open_gated = conn.execute(
+                    "SELECT COUNT(*) FROM requests"
+                    " WHERE from_agent = ? AND status = 'awaiting_grant'",
+                    (from_agent,),
+                ).fetchone()[0]
+                if open_gated >= max_open_gated:
+                    raise CoveyError(
+                        429,
+                        "too_many_pending_approvals",
+                        f"You already have {open_gated} requests waiting for the human.",
+                        "Wait for the human to answer them (`covey approvals`) before asking again.",
+                    )
         request_id = new_ulid()
         row = {
             "request_id": request_id,
