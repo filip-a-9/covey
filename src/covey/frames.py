@@ -12,3 +12,10 @@ def wake_message(from_slug: str, capability: str, request_id: str) -> str:
     """What idle wake posts to a session: the frame and who asked, never the task text."""
     who = f"- From `{from_slug}` ({capability}), request {request_id}"
     return f"{FRAME}\n{who}\n{CALL_TO_ACTION}"
+
+
+def reply_message(from_slug: str, request_id: str, status: str) -> str:
+    """What idle wake posts to an asker when a reply arrives: the frame and who replied,
+    never the result text, which the model reads through covey_wait."""
+    who = f"- Reply from `{from_slug}` to request {request_id} ({status})"
+    return f"{FRAME}\n{who}\nCall covey_wait with that request id to read it."

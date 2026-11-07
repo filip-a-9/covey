@@ -91,6 +91,9 @@ class Daemon:
         # relearned on the next heartbeat. Never the socket's token.
         self.wake_sockets: dict[str, str] = {}
         self.wake_tasks: set[asyncio.Task] = set()
+        # request_id -> open `?wait=` long-polls on it. In memory only; a reply posts to its
+        # asker only when this is 0.
+        self.waiting: dict[str, int] = {}
         # Never a session root and never matched. Empty in production; a test daemon running
         # inside pytest passes pytest's own ancestry, which may include a real `claude`.
         self.ignore_pids = ignore_pids
@@ -132,6 +135,18 @@ class Daemon:
             yield
         finally:
             self.human_watchers -= 1
+
+    @contextlib.contextmanager
+    def waiting_on(self, request_id: str) -> Iterator[None]:
+        """Count a `?wait=` long-poll on `request_id` while the block runs. The `finally`
+        also runs when the poll is cancelled by a client disconnect."""
+        self.waiting[request_id] = self.waiting.get(request_id, 0) + 1
+        try:
+            yield
+        finally:
+            self.waiting[request_id] -= 1
+            if self.waiting[request_id] <= 0:
+                del self.waiting[request_id]
 
     def mint_worker_token(self, agent_id: str, request_id: str) -> str:
         """A fresh token for a worker serving `request_id` as `agent_id`; only its hash is kept."""
@@ -188,14 +203,42 @@ class Daemon:
         task.add_done_callback(self.wake_tasks.discard)
 
     async def _post_wake(self, agent_id: str, path: str, rid: str, text: str) -> None:
+        if not await self._post(agent_id, path, text):
+            router.release_wake_claim(self.conn, rid)
+            await self.notify()
+
+    async def _post(self, agent_id: str, path: str, text: str) -> bool:
+        """Post `text` to a wake socket; on failure drop the socket and return False."""
         try:
             await wake.post(path, text)
         except OSError as exc:
             logger.info("wake post to %s failed: %s", agent_id, exc)
             if self.wake_sockets.get(agent_id) == path:
                 del self.wake_sockets[agent_id]
-            router.release_wake_claim(self.conn, rid)
-            await self.notify()
+            return False
+        return True
+
+    def wake_asker(self, request: dict[str, Any]) -> None:
+        """Idle wake for a reply: tell a live asker with a wake socket, in the background,
+        that a reply arrived, unless something is already waiting on it. No claim and no
+        fallback: a lost post costs no more than not posting."""
+        cfg = self.cfg
+        rid = request["request_id"]
+        asker = request["from_agent"]
+        path = self.wake_sockets.get(asker)
+        if not (cfg.idle_wake and path and self.waiting.get(rid, 0) == 0):
+            return
+        try:
+            if router._agent_by_id(self.conn, asker)["liveness"] != "live":
+                return
+        except CoveyError:
+            return
+        text = frames.reply_message(
+            request["to_agent"].partition("@")[0], rid, request["status"]
+        )
+        task = asyncio.get_running_loop().create_task(self._post(asker, path, text))
+        self.wake_tasks.add(task)
+        task.add_done_callback(self.wake_tasks.discard)
 
     async def shutdown_wakes(self) -> None:
         for task in list(self.wake_tasks):
@@ -707,7 +750,11 @@ def create_app(cfg: Config, ignore_pids: frozenset[int] = frozenset()) -> FastAP
             returnable = (*router.FINAL_STATUSES, "needs_input")
             return req if req["status"] in returnable else None
 
-        req = await daemon.wait_for(finished, wait) if wait else None
+        if wait:
+            with daemon.waiting_on(request_id):
+                req = await daemon.wait_for(finished, wait)
+        else:
+            req = None
         return versioned(request=req or router.get_request(daemon.conn, request_id))
 
     @app.post("/v1/requests/{request_id}/reply")
@@ -717,6 +764,7 @@ def create_app(cfg: Config, ignore_pids: frozenset[int] = frozenset()) -> FastAP
         who: Annotated[Caller, Depends(require("human", "agent"))],
     ) -> dict:
         daemon = app.state.daemon
+        before = router.get_request(daemon.conn, request_id)["status"]
         try:
             req = router.reply(
                 daemon.conn,
@@ -729,6 +777,8 @@ def create_app(cfg: Config, ignore_pids: frozenset[int] = frozenset()) -> FastAP
         finally:
             # A revoked-grant reply fails the request and then raises: wake waiters anyway.
             await daemon.notify()
+        if req["status"] != before:  # an identical repeat of a reply posts nothing
+            daemon.wake_asker(req)
         return versioned(request=req)
 
     @app.get("/v1/grants")

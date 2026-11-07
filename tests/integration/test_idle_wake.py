@@ -325,3 +325,139 @@ def test_the_session_start_hook_file_carries_the_socket_to_a_heartbeat(
     messages = fake.wait_for(1)
     assert len(messages) == 1
     assert_wake_message(messages[0], req["request_id"])
+
+
+RESULT = "SECRET-RESULT-TEXT-do-not-leak"
+
+
+@pytest.fixture
+def asker_fake(short_home):
+    session = FakeSession(short_home / "web.sock")
+    yield session
+    session.close()
+
+
+def reply(tcp, api, rid, status="done"):
+    r = tcp.post(
+        f"/v1/requests/{rid}/reply",
+        json={"result": RESULT, "status": status},
+        headers=api,
+    )
+    assert r.status_code == 200, r.text
+    return r
+
+
+def assert_reply_message(lines, rid, status):
+    assert len(lines) == 2
+    assert lines[0]["type"] == "auth"
+    content = lines[1]["message"]["content"]
+    assert FRAME in content and "covey_wait" in content
+    assert "api" in content and rid in content and status in content
+    assert RESULT not in content and TASK not in content
+
+
+def test_a_reply_nobody_waits_on_is_posted_once_to_the_asker(
+    tcp, wake_daemon, asker_fake
+):
+    web = register(tcp, wake_daemon, "web", asker_fake.path)
+    api = register(tcp, wake_daemon, "api")
+    req = ask(tcp, web)
+    rid = req["request_id"]
+    reply(tcp, api, rid)
+    messages = asker_fake.wait_for(1)
+    assert len(messages) == 1
+    assert_reply_message(messages[0], rid, "done")
+
+    reply(tcp, api, rid)  # an identical repeat is not a new status
+    time.sleep(SETTLE_S)
+    assert len(asker_fake.messages) == 1
+
+
+def test_a_reply_while_a_wait_is_open_posts_nothing(tcp, wake_daemon, asker_fake):
+    web = register(tcp, wake_daemon, "web", asker_fake.path)
+    api = register(tcp, wake_daemon, "api")
+    rid = ask(tcp, web)["request_id"]
+    got = []
+    waiter = threading.Thread(
+        target=lambda: got.append(
+            tcp_get(wake_daemon, web, f"/v1/requests/{rid}?wait=10")
+        )
+    )
+    waiter.start()
+    time.sleep(SETTLE_S)  # the long-poll is open
+    reply(tcp, api, rid)
+    waiter.join(5)
+    assert got and got[0]["request"]["status"] == "done"
+    time.sleep(SETTLE_S)
+    assert asker_fake.messages == []
+
+
+def tcp_get(daemon, headers, path):
+    with httpx.Client(base_url=daemon.base_url, timeout=15) as c:
+        return c.get(path, headers=headers).json()
+
+
+def test_an_asker_that_is_not_live_gets_no_post(tcp, wake_daemon, asker_fake):
+    web = register(tcp, wake_daemon, "web", asker_fake.path)
+    api = register(tcp, wake_daemon, "api")
+    rid = ask(tcp, web)["request_id"]
+    r = tcp.request(
+        "DELETE", "/v1/agents/web/session", json={"reason": "logout"}, headers=web
+    )
+    assert r.status_code == 200, r.text
+    reply(tcp, api, rid)
+    time.sleep(SETTLE_S)
+    assert asker_fake.messages == []
+
+
+def test_an_asker_without_a_wake_socket_gets_no_post(tcp, wake_daemon, fake):
+    web = register(tcp, wake_daemon, "web")
+    api = register(tcp, wake_daemon, "api")
+    rid = ask(tcp, web)["request_id"]
+    reply(tcp, api, rid)
+    time.sleep(SETTLE_S)
+    assert fake.messages == []
+
+
+def test_needs_input_is_posted(tcp, wake_daemon, asker_fake):
+    web = register(tcp, wake_daemon, "web", asker_fake.path)
+    api = register(tcp, wake_daemon, "api")
+    rid = ask(tcp, web)["request_id"]
+    reply(tcp, api, rid, "needs_input")
+    messages = asker_fake.wait_for(1)
+    assert len(messages) == 1
+    assert_reply_message(messages[0], rid, "needs_input")
+
+
+def test_idle_wake_off_posts_no_reply(short_home, asker_fake):
+    with (
+        make_daemon(short_home, idle_wake=False) as d,
+        httpx.Client(base_url=d.base_url, timeout=15) as tcp,
+    ):
+        web = register(tcp, d, "web", asker_fake.path)
+        api = register(tcp, d, "api")
+        rid = ask(tcp, web)["request_id"]
+        reply(tcp, api, rid)
+        time.sleep(SETTLE_S)
+        assert asker_fake.messages == []
+
+
+def test_a_dead_asker_socket_is_dropped_on_a_reply(short_home, asker_fake):
+    dead = short_home / "dead.sock"
+    with (
+        make_daemon(short_home) as d,
+        httpx.Client(base_url=d.base_url, timeout=15) as tcp,
+    ):
+        web = register(tcp, d, "web", str(dead))
+        api = register(tcp, d, "api")
+        first = ask(tcp, web)["request_id"]
+        reply(tcp, api, first)
+        time.sleep(SETTLE_S)
+        live = FakeSession(dead)  # a listener appears at the dropped path
+        try:
+            second = ask(tcp, web)["request_id"]
+            reply(tcp, api, second)
+            time.sleep(SETTLE_S)
+            assert live.messages == []
+        finally:
+            live.close()
