@@ -1,0 +1,79 @@
+{
+ "request": [
+  {
+   "request_id": "01M6VKF2BB3PNGVMW26V7KZ616",
+   "thread_id": "01M6VKF2BB3PNGVMW26V7KZ616",
+   "parent_id": null,
+   "from_agent": "human@01M6VJSB8K01F645D0KJBR5C81",
+   "to_agent": "w@01M6VJSB8K01F645D0KJBR5C81",
+   "capability": "explain",
+   "task": "Read f1.txt, then f2.txt, then f3.txt, one Read call at a time (never in parallel), then call covey_reply with the three contents.",
+   "context": null,
+   "status": "failed",
+   "result": "worker_error_max_turns",
+   "artifacts": [],
+   "hops": 0,
+   "created_at": "2026-11-07T18:13:52.619Z",
+   "updated_at": "2026-11-07T18:14:00.455Z",
+   "deadline": null
+  }
+ ],
+ "events": [
+  {
+   "covey": "1",
+   "id": 33,
+   "ts": "2026-11-07T18:13:52.619Z",
+   "actor": "human@01M6VJSB8K01F645D0KJBR5C81",
+   "event": "request.created",
+   "subject": "01M6VKF2BB3PNGVMW26V7KZ616",
+   "detail": {
+    "capability": "explain",
+    "to": "w",
+    "status": "queued"
+   }
+  },
+  {
+   "covey": "1",
+   "id": 34,
+   "ts": "2026-11-07T18:13:52.620Z",
+   "actor": "coveyd@01M6VJSB8K01F645D0KJBR5C81",
+   "event": "worker.spawned",
+   "subject": "01M6VKF2BB3PNGVMW26V7KZ616",
+   "detail": {
+    "agent": "w@01M6VJSB8K01F645D0KJBR5C81"
+   }
+  },
+  {
+   "covey": "1",
+   "id": 35,
+   "ts": "2026-11-07T18:14:00.455Z",
+   "actor": "coveyd@01M6VJSB8K01F645D0KJBR5C81",
+   "event": "worker.finished",
+   "subject": "01M6VKF2BB3PNGVMW26V7KZ616",
+   "detail": {
+    "agent": "w@01M6VJSB8K01F645D0KJBR5C81",
+    "exit": 1,
+    "outcome": "worker_error_max_turns",
+    "cost_usd": 0.026685,
+    "num_turns": 3,
+    "duration_ms": 5008,
+    "session_id": "SESSION-1",
+    "denials": [],
+    "replied_by_worker": false
+   }
+  },
+  {
+   "covey": "1",
+   "id": 36,
+   "ts": "2026-11-07T18:14:00.455Z",
+   "actor": "coveyd@01M6VJSB8K01F645D0KJBR5C81",
+   "event": "worker.failed",
+   "subject": "01M6VKF2BB3PNGVMW26V7KZ616",
+   "detail": {
+    "agent": "w@01M6VJSB8K01F645D0KJBR5C81",
+    "code": "worker_error_max_turns",
+    "session_id": "SESSION-1"
+   }
+  }
+ ]
+}

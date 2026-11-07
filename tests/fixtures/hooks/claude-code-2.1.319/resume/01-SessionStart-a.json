@@ -1,0 +1,28 @@
+{
+ "event": "SessionStart",
+ "agent": "a",
+ "command": "covey hook",
+ "exit": 0,
+ "duration_ms": 344,
+ "stdin": {
+  "session_id": "SESSION-1",
+  "transcript_path": "/home/USER/.claude/projects/-lab-a/SESSION-1.jsonl",
+  "cwd": "/lab/a",
+  "scratchpad_dir": "/tmp/claude-UID/-lab-a/SESSION-1/scratchpad",
+  "hook_event_name": "SessionStart",
+  "source": "startup",
+  "model": "claude-sonnet-5-5"
+ },
+ "stdout": {
+  "hookSpecificOutput": {
+   "hookEventName": "SessionStart",
+   "additionalContext": "You are agent `a` in the covey. Call `covey_describe` once you know what this repo does. Other agents may ask you for help."
+  }
+ },
+ "stderr": "",
+ "env": {
+  "CLAUDE_CODE_SESSION_ATTENDED": "1",
+  "CLAUDE_PID": "608423",
+  "CLAUDE_CODE_SESSION_ID": "SESSION-1"
+ }
+}

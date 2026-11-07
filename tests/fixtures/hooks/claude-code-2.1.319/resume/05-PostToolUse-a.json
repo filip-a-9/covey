@@ -1,0 +1,35 @@
+{
+ "event": "PostToolUse",
+ "agent": "a",
+ "command": "covey hook",
+ "exit": 0,
+ "duration_ms": 332,
+ "stdin": {
+  "session_id": "SESSION-1",
+  "transcript_path": "/home/USER/.claude/projects/-lab-a/SESSION-1.jsonl",
+  "cwd": "/lab/a",
+  "scratchpad_dir": "/tmp/claude-UID/-lab-a/SESSION-1/scratchpad",
+  "prompt_id": "PROMPT-3",
+  "permission_mode": "auto",
+  "effort": {
+   "level": "medium"
+  },
+  "hook_event_name": "PostToolUse",
+  "tool_name": "mcp__covey__covey_whoami",
+  "tool_input": {},
+  "tool_response": "{\"result\":\"You are agent `a` (`a@01M6VJSB8K01F645D0KJBR5C81`), live.\\nSummary: (none yet: call covey_describe)\\nCapabilities: none declared\\n\\n```json\\n{\\n  \\\"covey\\\": \\\"1\\\",\\n  \\\"card\\\": {\\n    \\\"covey\\\": \\\"1\\\",\\n    \\\"agent_id\\\": \\\"a@01M6VJSB8K01F645D0KJBR5C81\\\",\\n    \\\"slug\\\": \\\"a\\\",\\n    \\\"kind\\\": \\\"claude-code\\\",\\n    \\\"summary\\\": \\\"\\\",\\n    \\\"tags\\\": [],\\n    \\\"capabilities\\\": [],\\n    \\\"delivery\\\": \\\"hooks\\\",\\n    \\\"wakeable\\\": false,\\n    \\\"liveness\\\": \\\"live\\\",\\n    \\\"last_seen\\\": \\\"2026-11-07T18:05:03.095Z\\\",\\n    \\\"public_key\\\": null,\\n    \\\"workdir\\\": \\\"/lab/a\\\"\\n  },\\n  \\\"node_id\\\": \\\"01M6VJSB8K01F645D0KJBR5C81\\\",\\n  \\\"liveness\\\": \\\"live\\\"\\n}\\n```\"}",
+  "tool_use_id": "toolu_01Ue4v5SuNcjtfvKg3AGZdue",
+  "duration_ms": 40,
+  "mcp_server": {
+   "name": "covey",
+   "source": "dynamic"
+  }
+ },
+ "stdout": "",
+ "stderr": "",
+ "env": {
+  "CLAUDE_CODE_SESSION_ATTENDED": "1",
+  "CLAUDE_PID": "608423",
+  "CLAUDE_CODE_SESSION_ID": "SESSION-1"
+ }
+}

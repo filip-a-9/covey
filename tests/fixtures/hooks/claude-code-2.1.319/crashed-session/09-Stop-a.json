@@ -1,0 +1,30 @@
+{
+ "event": "Stop",
+ "agent": "a",
+ "command": "covey hook",
+ "exit": 0,
+ "duration_ms": 513,
+ "stdin": {
+  "session_id": "SESSION-1",
+  "transcript_path": "/home/USER/.claude/projects/-lab-a/SESSION-1.jsonl",
+  "cwd": "/lab/a",
+  "scratchpad_dir": "/tmp/claude-UID/-lab-a/SESSION-1/scratchpad",
+  "prompt_id": "PROMPT-3",
+  "permission_mode": "default",
+  "effort": {
+   "level": "medium"
+  },
+  "hook_event_name": "Stop",
+  "stop_hook_active": false,
+  "last_assistant_message": "I replied \"GRANTED\" to the grant-check request (01M6VKBBN8TRWEJQJWAHBJ1RGS), and it now shows as done. It was filed under `run_tests`, but the task only asked for that one word, so I ran no tests.",
+  "background_tasks": [],
+  "session_crons": []
+ },
+ "stdout": "",
+ "stderr": "",
+ "env": {
+  "CLAUDE_CODE_SESSION_ATTENDED": "1",
+  "CLAUDE_PID": "623127",
+  "CLAUDE_CODE_SESSION_ID": "SESSION-1"
+ }
+}

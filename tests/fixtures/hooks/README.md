@@ -76,3 +76,60 @@ What they show:
   and was answered in the same turn, so no second block was needed.
 
 Sanitized: home is `/home/USER`, the uid is `UID`, the repo path is `/lab/b`.
+
+## claude-code-2.1.319 `resume/` (Linux, WSL2, recorded 2026-11-07)
+
+The real `covey hook` commands in a scratch repo `a` (Sonnet, isolated `COVEY_HOME`), each wrapped by a script
+that recorded stdin, stdout, exit code and wall time. Run: start, one `covey_whoami` turn, `covey down && covey up`,
+another `covey_whoami` turn, `/exit`, then `claude --resume <id>`. The human then asked `a` while the resumed session sat idle.
+
+What they show:
+
+- `claude --resume <id>` sends `SessionStart` with `source: resume` and the SAME `session_id` as the first run (08).
+  The same hook output as a fresh start comes back.
+- Covey re-attached the same slug `a` and the same agent id. A request queued after the resume was woken by the idle-wake
+  post and came back through `covey_inbox` (`request.wake_posted`, `request.delivered`, then the reply) with no new turn from the user.
+- `/exit` marked the agent `gone` straight away (`agent.session_ended`, `reason: shim_exit`). So a request to `a` between
+  the `/exit` and the resume is refused (`target_unreachable`, HTTP 422) instead of queued. This differs from the
+  `covey-init/` finding above that the agent stayed `live` until the 60 s timeout.
+- The prompts these were driven by are not recorded: no `UserPromptSubmit` hook is installed by `covey init`.
+
+Restart check (shim-reattach.md), same run: with the session open, `covey down && covey up` on the same home and port,
+then `covey_whoami` from the session returned `a` with no error. The shim re-authenticates against the new daemon on its own.
+
+Sanitized: home is `/home/USER`, the uid is `UID`, the repo is `/lab/a`, session ids are `SESSION-n`, prompt ids `PROMPT-n`.
+
+## claude-code-2.1.319 `turn-cap/` (Linux, WSL2, recorded 2026-11-07)
+
+A wakeable agent `w` (`covey agent add w --wakeable --allowed-tools Read --max-turns 2 --max-budget-usd 0.05`) was asked
+to read three files one call at a time. The daemon spawned a headless worker, so nothing was recorded from inside it:
+`worker-run.json` is the request and its audit events. `raw-budget-first.json` is the `claude -p --output-format json`
+result of the same task run by hand (no MCP, same caps), which is the only raw result recorded.
+
+What they show:
+
+- `--max-turns 2` is enforced. The worker ended with subtype `error_max_turns`, which Covey maps to `worker_error_max_turns`,
+  after 5 s and about $0.027. `num_turns` was 3: the cap stops the run once it is exceeded, it does not stop at 2.
+- The by-hand run ended on `error_max_budget_usd` with `total_cost_usd` 0.096 against a cap of 0.05. The budget is checked
+  after a turn, so one expensive turn (a cold cache write) overshoots it. `is_error` is true and exit code 1 in both.
+
+Sanitized: session ids are `SESSION-n`, the repo is `/lab/w`.
+
+## claude-code-2.1.319 `crashed-session/` (Linux, WSL2, recorded 2026-11-07)
+
+Scratch repo `a` in manual permission mode (`--permission-mode default`). The human asked `a` for `run_tests` (gated) and
+approved it with `covey approve --session`. The session replied. Then `kill -9` on the `claude` process, and a new
+`claude` in the same repo. `covey-events.json` is `covey log --json` at the end.
+
+What they show:
+
+- No `SessionEnd` hook ran after `kill -9` (09 is the last file of the first session). The shim noticed anyway and the
+  daemon audited `agent.session_ended` (`reason: shim_exit`, to `gone`) within seconds.
+- The new session registered with `takeover: true` and a different `session_id` (10).
+- The `session` grant stays listed in `covey grants`, but a new `run_tests` request to `a` came back `awaiting_grant`
+  with an `approval.requested` event: the grant is not inherited.
+- Along the way (D): a `covey_inbox` permission prompt left open for about 85 s. The log showed `request.wake_posted` and nothing
+  else until the prompt was accepted, then `request.delivered` at the inbox read. No `request.wake_released` and no Stop
+  delivery.
+
+Sanitized: as above.

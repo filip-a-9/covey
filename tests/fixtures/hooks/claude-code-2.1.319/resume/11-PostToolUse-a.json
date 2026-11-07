@@ -1,0 +1,38 @@
+{
+ "event": "PostToolUse",
+ "agent": "a",
+ "command": "covey hook",
+ "exit": 0,
+ "duration_ms": 405,
+ "stdin": {
+  "session_id": "SESSION-1",
+  "transcript_path": "/home/USER/.claude/projects/-lab-a/SESSION-1.jsonl",
+  "cwd": "/lab/a",
+  "scratchpad_dir": "/tmp/claude-UID/-lab-a/SESSION-1/scratchpad",
+  "prompt_id": "PROMPT-5",
+  "permission_mode": "auto",
+  "effort": {
+   "level": "medium"
+  },
+  "hook_event_name": "PostToolUse",
+  "tool_name": "mcp__covey__covey_reply",
+  "tool_input": {
+   "request_id": "01M6VK1G6R2TZ2PJ6A88B1NQWD",
+   "result": "RESUMED"
+  },
+  "tool_response": "{\"result\":\"Reply recorded: request `01M6VK1G6R2TZ2PJ6A88B1NQWD` is `done`.\\n\\n```json\\n{\\n  \\\"covey\\\": \\\"1\\\",\\n  \\\"request\\\": {\\n    \\\"request_id\\\": \\\"01M6VK1G6R2TZ2PJ6A88B1NQWD\\\",\\n    \\\"thread_id\\\": \\\"01M6VK1G6R2TZ2PJ6A88B1NQWD\\\",\\n    \\\"parent_id\\\": null,\\n    \\\"from_agent\\\": \\\"human@01M6VJSB8K01F645D0KJBR5C81\\\",\\n    \\\"to_agent\\\": \\\"a@01M6VJSB8K01F645D0KJBR5C81\\\",\\n    \\\"capability\\\": \\\"explain\\\",\\n    \\\"task\\\": \\\"Resume check: call covey_reply with the word RESUMED.\\\",\\n    \\\"context\\\": null,\\n    \\\"status\\\": \\\"done\\\",\\n    \\\"result\\\": \\\"RESUMED\\\",\\n    \\\"artifacts\\\": [],\\n    \\\"hops\\\": 0,\\n    \\\"created_at\\\": \\\"2026-11-07T18:06:28.055Z\\\",\\n    \\\"updated_at\\\": \\\"2026-11-07T18:08:16.547Z\\\",\\n    \\\"deadline\\\": null\\n  }\\n}\\n```\"}",
+  "tool_use_id": "toolu_012KiCQFsYksVmPERzpJJRP3",
+  "duration_ms": 54,
+  "mcp_server": {
+   "name": "covey",
+   "source": "dynamic"
+  }
+ },
+ "stdout": "",
+ "stderr": "",
+ "env": {
+  "CLAUDE_CODE_SESSION_ATTENDED": "1",
+  "CLAUDE_PID": "617444",
+  "CLAUDE_CODE_SESSION_ID": "SESSION-1"
+ }
+}
