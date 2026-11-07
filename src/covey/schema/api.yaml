@@ -125,9 +125,7 @@ paths:
         Human only, unix socket only. Creates the agent with no token, liveness `wakeable`
         when `wakeable` is true and `gone` otherwise, or updates the card of an agent that
         is not `live` (409 `slug_live` if it is). This is the only call that sets the card's
-        `worker` block. `Bash` in `worker.allowed_tools` is refused with 400
-        `tool_not_allowed` until the human-token ancestry check exists. Audited as
-        `agent.created`.
+        `worker` block. Audited as `agent.created`.
       security:
         - humanToken: []
       requestBody:
@@ -693,7 +691,7 @@ components:
           properties:
             code:
               type: string
-              description: Stable machine-readable code, e.g. `slug_live`, `human_only`, `hops_exceeded`, `tool_not_allowed`.
+              description: Stable machine-readable code, e.g. `slug_live`, `human_only`, `hops_exceeded`.
             message:
               type: string
               description: What went wrong, for a person or an agent to read.
