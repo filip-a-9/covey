@@ -21,10 +21,6 @@ by a headless `claude -p` worker; spawn budget, concurrency and timeout are enfo
   Code documents a cross-session inbox socket that may fix it; a spike plan is in that file, not scheduled.
 - Sweep clearing `session_id` (finding 1, option C) was dropped: it detaches a session for good after laptop
   sleep. Revisit together with a way for the shim to re-attach.
-- `api.yaml` names four worker codes. The waker also uses `worker_error`, `worker_no_result` and
-  `worker_<subtype>`. Document them in a schema commit?
-- `covey agent add` cannot declare capabilities, so every request to a pre-registered agent needs an
-  approval until a session describes it. Add `--capabilities`?
 - `covey doctor` should check that `coveyd` can find `claude` (`COVEY_CLAUDE`). The daemon's PATH may differ
   from the shell's.
 - Stop hook returns early on `stop_hook_active`, so a request arriving during the blocked turn waits for the

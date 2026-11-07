@@ -123,6 +123,24 @@ def csv(value: str) -> list[str]:
     return [v.strip() for v in value.split(",") if v.strip()]
 
 
+LEVELS = ("open", "gated", "forbidden")
+
+
+def parse_capabilities(as_json: bool, value: str) -> list[dict[str, str]]:
+    """`explain:open,run_tests:gated` -> card capabilities; Exit with the format on error."""
+    caps = []
+    for item in csv(value):
+        name, _, level = item.partition(":")
+        if level.strip() not in LEVELS:
+            raise fail(
+                as_json,
+                f"Capability {item!r} is not name:level. Use e.g. "
+                f"`--capabilities explain:open,run_tests:gated` (levels: {', '.join(LEVELS)}).",
+            )
+        caps.append({"name": name.strip(), "level": level.strip()})
+    return caps
+
+
 @agent_app.command("add")
 def agent_add(
     agent: Annotated[str, typer.Argument(help="Agent slug.")],
@@ -135,6 +153,12 @@ def agent_add(
     kind: Annotated[str, typer.Option(help="Agent kind.")] = "claude-code",
     summary: Annotated[str | None, typer.Option(help="What the agent does.")] = None,
     tags: Annotated[str | None, typer.Option(help="Comma-separated tags.")] = None,
+    capabilities: Annotated[
+        str | None,
+        typer.Option(
+            help="Comma-separated name:level, e.g. explain:open,run_tests:gated."
+        ),
+    ] = None,
     allowed_tools: Annotated[
         str | None,
         typer.Option(help="Comma-separated Claude Code tools for the worker."),
@@ -166,6 +190,8 @@ def agent_add(
         body["summary"] = summary
     if tags is not None:
         body["tags"] = csv(tags)
+    if capabilities is not None:
+        body["capabilities"] = parse_capabilities(as_json, capabilities)
     worker = {
         "allowed_tools": csv(allowed_tools) if allowed_tools is not None else None,
         "max_turns": max_turns,

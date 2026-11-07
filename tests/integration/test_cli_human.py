@@ -292,3 +292,50 @@ def test_agent_add_with_bash_fails_with_the_daemons_reason(env, tmp_path):
         expect=1,
     )
     assert data["code"] == "tool_not_allowed"
+
+
+def test_agent_add_declares_capabilities(env, tmp_path):
+    card = cli_json(
+        "agent",
+        "add",
+        "docs",
+        "--workdir",
+        str(tmp_path),
+        "--capabilities",
+        "explain:open, run_tests:gated",
+    )["card"]
+    assert card["capabilities"] == [
+        {"name": "explain", "level": "open"},
+        {"name": "run_tests", "level": "gated"},
+    ]
+
+
+def test_agent_add_open_capability_needs_no_approval(env, tmp_path):
+    cli(
+        "agent",
+        "add",
+        "docs",
+        "--workdir",
+        str(tmp_path),
+        "--wakeable",
+        "--capabilities",
+        "explain:open",
+    )
+    request = cli_json("ask", "docs", "hello")["request"]
+    assert request["status"] == "queued"  # not awaiting_grant
+
+
+@pytest.mark.parametrize("bad", ["explain", "explain:sometimes"])
+def test_agent_add_bad_capability_fails_before_calling_the_daemon(env, tmp_path, bad):
+    data = cli_json(
+        "agent",
+        "add",
+        "docs",
+        "--workdir",
+        str(tmp_path),
+        "--capabilities",
+        bad,
+        expect=1,
+    )
+    assert "name:level" in data["error"]
+    assert cli_json("ps")["agents"] == []
