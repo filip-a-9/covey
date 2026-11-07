@@ -1,0 +1,9 @@
+{
+  "session_id": "<session-id>",
+  "transcript_path": "<redacted>",
+  "cwd": "<redacted>",
+  "scratchpad_dir": "<redacted>",
+  "hook_event_name": "SessionStart",
+  "source": "startup",
+  "model": "claude-opus-5-5"
+}

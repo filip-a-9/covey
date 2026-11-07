@@ -1,0 +1,2 @@
+{"type": "auth", "token": "<CLAUDE_CODE_MESSAGING_TOKEN>"}
+{"type": "user", "message": {"role": "user", "content": "Reply with only the word PONG."}}
