@@ -147,3 +147,65 @@ def test_a_real_session_can_register_while_a_worker_runs(client, daemon, worker)
     register(client, daemon, "docs")
     assert liveness(daemon, "docs") == "live"
     assert client.get("/v1/whoami", headers=worker).status_code == 200
+
+
+def other_request(client, web):
+    r = client.post(
+        "/v1/requests",
+        json={"to": "docs", "capability": "explain", "task": "a second ask"},
+        headers=web,
+    )
+    assert r.status_code == 201, r.text
+    return r.json()["request"]
+
+
+def test_worker_cannot_read_the_inbox_or_claim_for_stop(client, worker):
+    inbox = client.get("/v1/agents/docs/inbox", headers=worker)
+    claim = client.post("/v1/agents/docs/inbox/stop-claim", headers=worker)
+    assert (inbox.status_code, claim.status_code) == (403, 403)
+    assert inbox.json()["error"]["code"] == "not_worker"
+    assert claim.json()["error"]["code"] == "not_worker"
+
+
+def test_worker_cannot_reply_to_or_read_another_request(
+    client, web, worker, docs_request
+):
+    rid = other_request(client, web)["request_id"]
+    rep = client.post(
+        f"/v1/requests/{rid}/reply",
+        json={"result": "pwned", "status": "done"},
+        headers=worker,
+    )
+    got = client.get(f"/v1/requests/{rid}", headers=worker)
+    assert (rep.status_code, got.status_code) == (403, 403)
+    status = client.get(f"/v1/requests/{rid}", headers=web).json()["request"]["status"]
+    assert status not in ("done", "failed")
+    own = client.get(f"/v1/requests/{docs_request['request_id']}", headers=worker)
+    assert own.status_code == 200
+
+
+def test_worker_cannot_put_a_card(client, worker):
+    r = client.put("/v1/agents/docs/card", json={"summary": "evil"}, headers=worker)
+    assert r.status_code == 403
+    assert r.json()["error"]["code"] == "not_worker"
+
+
+def test_worker_ask_parent_is_forced_and_it_can_read_what_it_created(
+    client, web, worker, docs_request
+):
+    other_parent = other_request(client, web)["request_id"]
+    r = client.post(
+        "/v1/requests",
+        json={
+            "to": "web",
+            "capability": "explain",
+            "task": "q",
+            "parent_id": other_parent,
+        },
+        headers=worker,
+    )
+    assert r.status_code == 201, r.text
+    sub = r.json()["request"]
+    assert sub["parent_id"] == docs_request["request_id"]
+    got = client.get(f"/v1/requests/{sub['request_id']}", headers=worker)
+    assert got.status_code == 200

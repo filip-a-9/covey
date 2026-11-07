@@ -27,7 +27,7 @@ import sys
 import threading
 import time
 from collections.abc import AsyncIterator, Callable, Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any, Literal
 
@@ -63,6 +63,9 @@ class Caller:
     agent_id: str | None  # human@<node> for the human, None for the join token
     slug: str | None
     worker_request: str | None = None  # set for a headless worker's token
+    worker_created: set[str] | None = (
+        None  # requests that worker asked, shared with its token
+    )
 
 
 @dataclass(frozen=True)
@@ -71,6 +74,7 @@ class WorkerAuth:
 
     agent_id: str
     request_id: str
+    created: set[str] = field(default_factory=set)  # sub-requests it asked
 
 
 class Daemon:
@@ -379,7 +383,7 @@ def caller(request: Request) -> Caller:
     worker = daemon.workers.get(digest)
     if worker is not None:
         slug = worker.agent_id.partition("@")[0]
-        return Caller("agent", worker.agent_id, slug, worker.request_id)
+        return Caller("agent", worker.agent_id, slug, worker.request_id, worker.created)
     raise CoveyError(
         401,
         "unauthorized",
@@ -396,6 +400,32 @@ def not_worker(who: Caller) -> None:
             "wrong_token",
             "A headless worker cannot heartbeat or attach a session.",
             "Run `covey mcp --worker`, which never does either.",
+        )
+
+
+def worker_only_own(who: Caller, request_id: str) -> None:
+    """A worker may touch only the request it serves and the ones it asked."""
+    if (
+        who.worker_request is not None
+        and request_id != who.worker_request
+        and request_id not in (who.worker_created or ())
+    ):
+        raise CoveyError(
+            403,
+            "not_worker",
+            "A headless worker can use only its own request and the ones it asked.",
+            "Reply to your own request, or ask with `covey_ask`.",
+        )
+
+
+def refuse_worker(who: Caller) -> None:
+    """Inbox, stop-claim and card edits belong to the agent's real session."""
+    if who.worker_request is not None:
+        raise CoveyError(
+            403,
+            "not_worker",
+            "A headless worker cannot read the inbox or edit the card.",
+            "Reply to your own request with `covey_reply`; the daemon already gave you the task.",
         )
 
 
@@ -593,6 +623,7 @@ def create_app(cfg: Config, ignore_pids: frozenset[int] = frozenset()) -> FastAP
             )
 
     def own_request(who: Caller, request_id: str) -> dict[str, Any]:
+        worker_only_own(who, request_id)
         req = router.get_request(app.state.daemon.conn, request_id)
         if who.kind == "agent" and not router.is_participant(req, who.agent_id):
             raise forbidden(
@@ -671,6 +702,7 @@ def create_app(cfg: Config, ignore_pids: frozenset[int] = frozenset()) -> FastAP
         who: Annotated[Caller, Depends(require("human", "agent"))],
     ) -> dict:
         daemon = app.state.daemon
+        refuse_worker(who)
         own_slug(who, slug)
         fields = body.model_dump(exclude_none=True)
         if not fields:
@@ -708,6 +740,7 @@ def create_app(cfg: Config, ignore_pids: frozenset[int] = frozenset()) -> FastAP
         peek: bool = False,
     ) -> dict:
         daemon = app.state.daemon
+        refuse_worker(who)
         own_slug(who, slug)
         agent = registry.get_agent(daemon.conn, slug)
         # Only the target's own read delivers; the human looking at it is just peeking.
@@ -724,6 +757,7 @@ def create_app(cfg: Config, ignore_pids: frozenset[int] = frozenset()) -> FastAP
         who: Annotated[Caller, Depends(require("agent"))],
     ) -> dict:
         daemon = app.state.daemon
+        refuse_worker(who)
         own_slug(who, slug)
         agent = registry.get_agent(daemon.conn, slug)
         requests = router.stop_claim(daemon.conn, agent["agent_id"])
@@ -775,9 +809,8 @@ def create_app(cfg: Config, ignore_pids: frozenset[int] = frozenset()) -> FastAP
                 body.task,
                 context=body.context,
                 thread_id=body.thread_id,
-                # A worker that starts a fresh thread would reset hops; continue its request.
-                parent_id=body.parent_id
-                or (None if body.thread_id else who.worker_request),
+                # A worker's asks always continue its own request, never another.
+                parent_id=who.worker_request or body.parent_id,
                 timeout_s=body.timeout_s,
                 max_hops=daemon.cfg.max_hops,
             )
@@ -790,6 +823,8 @@ def create_app(cfg: Config, ignore_pids: frozenset[int] = frozenset()) -> FastAP
                     f" `covey agent add {body.to} --workdir <its repo> --wakeable`."
                 )
             raise
+        if who.worker_created is not None:
+            who.worker_created.add(req["request_id"])
         daemon.wake(req)
         await daemon.notify()
         daemon.waker.kick()
@@ -830,6 +865,7 @@ def create_app(cfg: Config, ignore_pids: frozenset[int] = frozenset()) -> FastAP
         who: Annotated[Caller, Depends(require("human", "agent"))],
     ) -> dict:
         daemon = app.state.daemon
+        worker_only_own(who, request_id)
         before = router.get_request(daemon.conn, request_id)["status"]
         try:
             req = router.reply(
