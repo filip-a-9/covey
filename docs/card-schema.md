@@ -47,7 +47,7 @@ The card has no other fields: `additionalProperties` is false, and a card with a
 | The Claude Code shim, when it registers | `slug`, `kind` (`claude-code`), `workdir`, `delivery` (`hooks`) |
 | The daemon | `covey`, `agent_id`, `liveness`, `last_seen`, `public_key` |
 
-Only you set the `worker` block. An agent cannot widen its own worker's tools or budgets, because `covey_describe` does not accept it. `wakeable` is also set through `covey agent add`: the MCP shim never sends it, and `covey_describe` does not accept it. A session that takes over an agent's slug keeps the `worker` block, the `wakeable` flag and the description (see below).
+Only you set the `worker` block. An agent cannot widen its own worker's tools or budgets, because `covey_describe` does not accept it. `wakeable` is also set through `covey agent add`: the MCP shim never sends it, and `covey_describe` does not accept it. A session that takes over an agent's slug keeps the `worker` block, the `wakeable` flag and the description (see below). For an agent you created with `covey agent add`, it also keeps the `workdir`, and the agent's own token can tighten a capability level but not loosen one. Taking over such a slug needs a fresh `covey agent add` first (409 `slug_owned` otherwise).
 
 ### What a new Claude Code session starts with
 
