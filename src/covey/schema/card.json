@@ -27,23 +27,25 @@
     "agent_id": {
       "description": "`<slug>@<node_id>`; node_id is a 26-character ULID.",
       "type": "string",
-      "pattern": "^[a-z0-9][a-z0-9_-]{0,62}@[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+      "pattern": "^[a-z0-9][a-z0-9_-]{0,62}@[0-7][0-9A-HJKMNP-TV-Z]{25}(?![\\s\\S])"
     },
     "slug": {
       "description": "Human-chosen name, unique per node. `human` is reserved for the human pseudo-agent.",
       "type": "string",
-      "pattern": "^[a-z0-9][a-z0-9_-]{0,62}$"
+      "pattern": "^[a-z0-9][a-z0-9_-]{0,62}(?![\\s\\S])"
     },
     "kind": {
       "description": "What sort of agent this is, e.g. `claude-code`, `openclaw`, `python`, `human`. Free text so new kinds are not a breaking change.",
       "type": "string",
       "minLength": 1,
-      "maxLength": 64
+      "maxLength": 64,
+      "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f]*(?![\\s\\S])"
     },
     "workdir": {
       "description": "Absolute path the agent works in, if it has one.",
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f]*(?![\\s\\S])"
     },
     "summary": {
       "description": "One or two sentences on what this agent knows and owns. Discovery ranks against it.",
@@ -157,7 +159,7 @@
         "name": {
           "description": "Capability name, e.g. `explain`, `run_tests`. `*` is not allowed in a card; wildcards exist only in grants.",
           "type": "string",
-          "pattern": "^[a-z0-9][a-z0-9_.-]{0,63}$"
+          "pattern": "^[a-z0-9][a-z0-9_.-]{0,63}(?![\\s\\S])"
         },
         "level": {
           "enum": ["open", "gated", "forbidden"]

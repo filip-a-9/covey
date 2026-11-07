@@ -702,3 +702,12 @@ def test_a_join_token_heartbeat_cannot_revive_a_human_created_agent(tcp, human, 
     assert [c["card"]["liveness"] for c in card if c["card"]["slug"] == "docs"] == [
         "wakeable"
     ]
+
+
+@pytest.mark.parametrize("field", ["kind", "workdir", "wake_socket"])
+def test_register_rejects_control_characters(tcp, daemon, field):
+    body = {"slug": "evil", "kind": "python", "delivery": "poll", "workdir": "/tmp"}
+    body["wake_socket"] = "/tmp/a.sock"
+    body[field] = "x\r\x1b]0;pwned\x07"
+    r = tcp.post("/v1/agents/register", json=body, headers=auth(daemon.join_token))
+    assert r.status_code in (400, 422)

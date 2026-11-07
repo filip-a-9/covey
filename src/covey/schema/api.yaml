@@ -647,16 +647,16 @@ components:
 
     Ulid:
       type: string
-      pattern: "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+      pattern: "^[0-7][0-9A-HJKMNP-TV-Z]{25}(?![\\s\\S])"
 
     Slug:
       type: string
-      pattern: "^[a-z0-9][a-z0-9_-]{0,62}$"
+      pattern: "^[a-z0-9][a-z0-9_-]{0,62}(?![\\s\\S])"
 
     AgentId:
       type: string
       description: "`<slug>@<node_id>`"
-      pattern: "^[a-z0-9][a-z0-9_-]{0,62}@[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+      pattern: "^[a-z0-9][a-z0-9_-]{0,62}@[0-7][0-9A-HJKMNP-TV-Z]{25}(?![\\s\\S])"
 
     Card:
       $ref: "./card.json"
@@ -720,8 +720,8 @@ components:
       required: [slug, kind, delivery]
       properties:
         slug: { $ref: "#/components/schemas/Slug" }
-        kind: { type: string, minLength: 1, maxLength: 64 }
-        workdir: { type: string }
+        kind: { type: string, minLength: 1, maxLength: 64, pattern: "^[^\\u0000-\\u001f\\u007f-\\u009f]*(?![\\s\\S])" }
+        workdir: { type: string, pattern: "^[^\\u0000-\\u001f\\u007f-\\u009f]*(?![\\s\\S])" }
         summary: { type: string, maxLength: 1000, default: "" }
         tags:
           type: array
@@ -736,6 +736,7 @@ components:
         wake_socket:
           type: string
           maxLength: 200
+          pattern: "^[^\\u0000-\\u001f\\u007f-\\u009f]*(?![\\s\\S])"
           description: >-
             Claude Code messaging socket path for idle wake; never the token. Used only if it
             is a non-symlink `*.sock` directly in the user's `cc-socks` runtime directory
@@ -766,8 +767,8 @@ components:
       required: [slug, workdir]
       properties:
         slug: { $ref: "#/components/schemas/Slug" }
-        kind: { type: string, minLength: 1, maxLength: 64, default: claude-code }
-        workdir: { type: string, minLength: 1, description: Absolute path. }
+        kind: { type: string, minLength: 1, maxLength: 64, default: claude-code, pattern: "^[^\\u0000-\\u001f\\u007f-\\u009f]*(?![\\s\\S])" }
+        workdir: { type: string, minLength: 1, pattern: "^[^\\u0000-\\u001f\\u007f-\\u009f]*(?![\\s\\S])", description: Absolute path. }
         summary: { type: string, maxLength: 1000, default: "" }
         tags:
           type: array
@@ -805,6 +806,7 @@ components:
         wake_socket:
           type: string
           maxLength: 200
+          pattern: "^[^\\u0000-\\u001f\\u007f-\\u009f]*(?![\\s\\S])"
           description: >-
             Claude Code messaging socket path for idle wake; never the token. Used only if it
             is a non-symlink `*.sock` directly in the user's `cc-socks` runtime directory
@@ -817,6 +819,7 @@ components:
         wake_socket:
           type: string
           maxLength: 200
+          pattern: "^[^\\u0000-\\u001f\\u007f-\\u009f]*(?![\\s\\S])"
           description: >-
             Claude Code messaging socket path for idle wake; never the token. Used only if it
             is a non-symlink `*.sock` directly in the user's `cc-socks` runtime directory

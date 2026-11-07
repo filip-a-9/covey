@@ -454,6 +454,8 @@ def require(*kinds: str) -> Callable[..., Caller]:
 
 SLUG = r"^[a-z0-9][a-z0-9_-]{0,62}$"
 ULID = r"^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+# No C0/C1 controls (pydantic's regex engine: `$` is end of text only, never before a newline).
+NO_CONTROLS = r"^[^\x00-\x1f\x7f-\x9f]*$"
 GRANT_SCOPE = Literal["once", "session", "always", "deny"]
 
 
@@ -474,9 +476,9 @@ class Body(BaseModel):
 
 class RegisterBody(Body):
     slug: str = Field(pattern=SLUG)
-    kind: str = Field(min_length=1, max_length=64)
+    kind: str = Field(min_length=1, max_length=64, pattern=NO_CONTROLS)
     delivery: Literal["hooks", "webhook", "poll", "spawn"]
-    workdir: str | None = None
+    workdir: str | None = Field(default=None, pattern=NO_CONTROLS)
     summary: str = Field(default="", max_length=1000)
     tags: list[str] = []
     capabilities: list[dict[str, Any]] = []
@@ -484,13 +486,15 @@ class RegisterBody(Body):
     webhook_url: str | None = None
     wakeable: bool | None = None  # accepted but ignored: only the human token sets it
     session_id: str | None = None
-    wake_socket: str | None = Field(default=None, max_length=200)
+    wake_socket: str | None = Field(default=None, max_length=200, pattern=NO_CONTROLS)
 
 
 class CreateAgentBody(Body):
     slug: str = Field(pattern=SLUG)
-    kind: str = Field(default="claude-code", min_length=1, max_length=64)
-    workdir: str = Field(min_length=1)
+    kind: str = Field(
+        default="claude-code", min_length=1, max_length=64, pattern=NO_CONTROLS
+    )
+    workdir: str = Field(min_length=1, pattern=NO_CONTROLS)
     summary: str = Field(default="", max_length=1000)
     tags: list[str] = []
     capabilities: list[dict[str, Any]] = []
@@ -508,11 +512,11 @@ class DescribeBody(Body):
 
 class SessionBody(Body):
     session_id: str = Field(min_length=1, max_length=200)
-    wake_socket: str | None = Field(default=None, max_length=200)
+    wake_socket: str | None = Field(default=None, max_length=200, pattern=NO_CONTROLS)
 
 
 class HeartbeatBody(Body):
-    wake_socket: str | None = Field(default=None, max_length=200)
+    wake_socket: str | None = Field(default=None, max_length=200, pattern=NO_CONTROLS)
 
 
 class SessionEndBody(Body):

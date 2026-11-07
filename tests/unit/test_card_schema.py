@@ -71,3 +71,23 @@ def test_a_malformed_worker_block_is_invalid(worker):
     errors = list(VALIDATOR.iter_errors(card(worker=worker)))
     assert errors
     assert all(list(e.path)[:1] == ["worker"] for e in errors)
+
+
+@pytest.mark.parametrize("tail", ["\n", "\r", " ", "\x1b"])
+@pytest.mark.parametrize("field", ["slug", "capability"])
+def test_names_reject_trailing_whitespace_and_controls(field, tail):
+    """JSON Schema `pattern` is a search: `$` alone would accept a trailing newline."""
+    if field == "slug":
+        assert not valid(card(slug="api" + tail))
+    else:
+        assert not valid(card(capabilities=[{"name": "push" + tail, "level": "open"}]))
+
+
+def test_agent_id_rejects_a_trailing_newline():
+    assert not valid(card(agent_id="api@01JC3Z8K2M4N5P6Q7R8S9T0V1W\n"))
+
+
+@pytest.mark.parametrize("field", ["kind", "workdir"])
+@pytest.mark.parametrize("bad", ["a\nb", "a\r", "a\x1b]0;x\x07", "a\x85b", "a\n"])
+def test_kind_and_workdir_reject_control_characters(field, bad):
+    assert not valid(card(**{field: bad}))
