@@ -102,7 +102,7 @@ What the worker gets:
 - a token that works only for this request and is thrown away when the worker ends;
 - the model from `COVEY_WORKER_MODEL` (default `sonnet`).
 
-Limits, all enforced by the daemon:
+Limits:
 
 | Limit | Default | Where it is set |
 | --- | --- | --- |
@@ -112,6 +112,8 @@ Limits, all enforced by the daemon:
 | Workers running at once, all agents | 2 | fixed in v1 |
 | Workers per agent at once | 1 | fixed |
 | Wall clock per run | 10 minutes, or the request's deadline if sooner | fixed in v1 |
+
+The daemon passes the turn and spend caps to `claude -p`, and Claude Code checks them after each turn. A run stops after the turn that passes `--max-turns`, and one turn can go over `--max-budget-usd`.
 
 Workers never run with `--dangerously-skip-permissions` or any bypass mode.
 

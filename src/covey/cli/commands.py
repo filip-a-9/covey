@@ -169,10 +169,18 @@ def agent_add(
         ),
     ] = None,
     max_turns: Annotated[
-        int | None, typer.Option(help="Turn cap for one worker run.")
+        int | None,
+        typer.Option(
+            help="Turn cap for one worker run. "
+            "Claude Code stops after the turn that passes it."
+        ),
     ] = None,
     max_budget_usd: Annotated[
-        float | None, typer.Option(help="Spend cap in USD for one worker run.")
+        float | None,
+        typer.Option(
+            help="Spend cap in USD for one worker run. "
+            "Checked after each turn, so one turn can go over it."
+        ),
     ] = None,
     daily_spawns: Annotated[
         int | None, typer.Option(help="Most workers in any rolling 24 hours.")
