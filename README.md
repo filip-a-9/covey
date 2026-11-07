@@ -92,7 +92,7 @@ Works: the daemon with registry, router, grants and approvals; the nine MCP tool
 Does not work or is not built yet:
 
 - Windows is best-effort. Named pipes come in v1.1.
-- macOS has not been tested in real use yet. It is a target, not a promise.
+- macOS: process lookup was checked against a real Claude Code binary in CI; sessions on a Mac are untested. It is a target, not a promise.
 - Only Claude Code has a hook and wake integration. Other MCP clients can call the tools but are not woken. The `webhook` and `poll` delivery values exist in the card format, and the daemon does not act on them.
 - No cross-machine peering, no A2A edge and no signed identities. Those are v1.1 and v2.
 

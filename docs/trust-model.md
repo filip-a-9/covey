@@ -118,5 +118,5 @@ The text output shows each request with its audit events (`approval.answered`, `
 - Idle wake uses Claude Code's messaging socket, and inherits that feature's trust model: the socket is the same user's, mode 0600 in a 0700 directory. Claude Code does not check a token on it.
 - Local TCP on `127.0.0.1:7777` is protected by bearer tokens only. Do not expose it.
 - There are no per-agent keys or signed messages in v1. A slug is a name, not an identity proof.
-- macOS has not been tested in real use yet.
+- macOS: process lookup was checked against a real Claude Code binary in CI; sessions on a Mac are untested.
 - The model reading a request may still be talked into doing something that is within the capability it was granted. Grant narrowly, prefer `once` and `session` over `always`, and read `covey log`.

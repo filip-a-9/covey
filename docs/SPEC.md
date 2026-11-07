@@ -385,7 +385,7 @@ covey/
 
 **Stack, chosen for speed and small surface:** Python 3.11+, FastAPI + uvicorn for the daemon, the official `mcp` Python SDK for the shim, `httpx` everywhere, `sqlite3` from the standard library (no ORM; the schema is five tables), Typer for the CLI, Textual for the TUI, `plyer` optional for notifications, `pytest` + `pytest-asyncio`. CI on GitHub Actions for Linux and macOS; Windows support is best-effort in v1 (named pipes instead of unix sockets is a v1.1 item). Release with `uv build` and trusted publishing to PyPI; tag-driven.
 
-**Build order and dates**, assuming you start Monday Nov 10, work on it full time, and Claude Code writes most of the code. The schedule is paced by the things Claude Code cannot speed up: experiments on real sessions, beta feedback and demo polish, not typing:
+**Build order and dates**, assuming you start Monday Nov 10, work on it full time, and Claude Code writes most of the code. The schedule is paced by the things Claude Code cannot speed up: experiments on real sessions, the self-dogfood week and demo polish, not typing:
 
 ```text
 BUILD PLAN (start Mon 2026-11-10; you + Claude Code full time)
@@ -466,7 +466,7 @@ Core first because everything else is a client of it; the shim and hooks start o
 - The shim writes `{slug, agent_token, claude_pid, claude_start_time}` to `~/.covey/sessions/claude-<pid>.json`, mode 0600, and rewrites it whenever it re-registers. The start time stops a recycled pid from matching.
 - Hooks read `$CLAUDE_PID`, open that file, check the start time, and act with the agent token. No file means no shim (yet: at startup `SessionStart` runs before the MCP server), and the hook exits quietly.
 - The shim registers with its environment's `session_id`. `SessionStart` reports the current one, so `session` grants still end when a session ends. That report needs a contract change (an agent-token way to set `session_id`), made in its own schema commit with the hooks slice.
-- Not yet observed: `--resume` and macOS (where the start time comes from `ps -o lstart=` instead of `/proc`). Check both before the hooks slice ships.
+- Observed on 2.1.319 (2026-11-07): `claude --resume` sends `SessionStart` with `source: resume` and the same `session_id`, and Covey re-attaches the same slug (`tests/fixtures/hooks/claude-code-2.1.319/resume/`). On macOS (arm64, native binary, in a CI job with no login), `ps -o comm=` reports `claude` and `ps -o lstart=` matches what `covey.procs` reads. A logged-in session on a Mac is not yet observed.
 
 **How workers run (decided after the spawner spike, Claude Code 2.1.319).** Evidence, recorded in `tests/fixtures/worker/`: `claude -p --output-format json` reads the task from stdin and prints one JSON object. That object always has `subtype`, `is_error`, `session_id`, `total_cost_usd`, `num_turns` and `duration_ms`, and has `result` only when `subtype` is `success`. So:
 
@@ -479,7 +479,7 @@ Core first because everything else is a client of it; the shim and hooks start o
 - A denial does not fail the run. The run still ends `success`, and the denied calls are listed in `permission_denials`, which the daemon copies into the `worker.finished` audit row.
 - Spend is bounded by `--max-budget-usd`, which is checked between turns and can overshoot by one turn, and by a wall-clock kill at the request's deadline or 600 s, whichever comes first. A run that ends without calling `covey_reply` is answered by the daemon: `done` with `result` on success (through the normal reply path, so the grant is re-checked), otherwise `failed` with `worker_<subtype>`. A missing `result` is never treated as `done`.
 - A trivial run with the MCP server takes about 8 s, which answers open question 3 (under 20 s). One real run against a scratch repo answered correctly in 5.8 s for $0.017.
-- Not yet observed: `--max-turns` being enforced, and workers on macOS.
+- Observed on 2.1.319 (2026-11-07): `--max-turns 2` ends the run with `error_max_turns` after the third turn, so the turn cap, like the budget, stops one turn late (`tests/fixtures/hooks/claude-code-2.1.319/turn-cap/`). Not yet observed: workers on macOS.
 
 **Launch decisions** (settled 2026-11-07):
 

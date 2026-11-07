@@ -184,6 +184,7 @@ Other things you may meet:
 - **`covey top` says it needs the tui extra.** Reinstall with the `tui` extra (step 1).
 - **A tool answers "Another session already holds the agent name ...".** Two live sessions have the same directory name. Set `COVEY_AGENT=<other-slug>` in one session's covey MCP server `env` and restart that session.
 - **The session says coveyd is unreachable.** Ask for `covey up` in your terminal, then retry the tool.
+- **After `covey down` and `covey up`.** Open sessions keep working; the next tool call reconnects. If one does not, restart that Claude Code session.
 - **Hooks seem to do nothing.** Restart the Claude Code session after `covey init`. Hooks and MCP servers load at session start.
 - **A request stays `queued` and the other session does not react.** See [how delivery works](how-delivery-works.md), "When nothing happens". `covey inbox <agent>` shows what is waiting and does not mark anything delivered.
 - **`covey ask` or `covey_ask` fails with "gone".** The target has no session and is not wakeable. Open a session there, or register it with `covey agent add <slug> --workdir <repo> --wakeable`.
