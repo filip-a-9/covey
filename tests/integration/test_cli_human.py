@@ -78,6 +78,14 @@ def test_ps_lists_agents(env, web, api):
     assert "web" in text and "api" in text
 
 
+def test_top_json_prints_one_snapshot(env, tcp, web, api):
+    rid = gated_request(tcp, web)
+    data = cli_json("top")
+    assert {a["slug"] for a in data["agents"]} == {"web", "api"}
+    assert [r["request_id"] for r in data["approvals"]] == [rid]
+    assert set(data) == {"covey", "agents", "requests", "approvals"}
+
+
 def test_find_ranks_by_need(env, web, api):
     data = cli_json("find", "billing cache")
     assert data["matches"][0]["card"]["slug"] == "api"

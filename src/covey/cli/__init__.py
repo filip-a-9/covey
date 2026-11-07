@@ -364,8 +364,22 @@ def mcp(
 
 
 @app.command()
-def top() -> None:
+def top(as_json: JsonOpt = False) -> None:
     """Live terminal view of agents, activity and approvals."""
+    if as_json:
+        from covey.cli.commands import call
+
+        agents_payload = call(as_json, "GET", "/v1/agents", params={"limit": 50})
+        log_payload = call(as_json, "GET", "/v1/log", params={"limit": 200})
+        approvals_payload = call(as_json, "GET", "/v1/approvals")
+        snapshot = {
+            "covey": "1",
+            "agents": [m["card"] for m in agents_payload["matches"]],
+            "requests": log_payload.get("requests", []),
+            "approvals": approvals_payload.get("requests", []),
+        }
+        out(as_json, snapshot, "")
+        raise typer.Exit(0)
     try:
         from covey.tui.app import run  # lazy: Textual is an optional extra
     except ImportError as exc:
