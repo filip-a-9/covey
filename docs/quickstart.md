@@ -7,7 +7,7 @@ From nothing to two Claude Code sessions talking, in about five minutes.
 - Linux or macOS. Windows is best-effort until v1.1. On Windows, use WSL.
 - [uv](https://docs.astral.sh/uv/).
 - Claude Code, logged in. Idle wake needs 2.1.224 or newer. Covey is developed against 2.1.319.
-- Two git repos (or any two directories) to open sessions in.
+- Two git repos that hold some code, to open sessions in. With empty directories the demo still runs, but the agent can only answer "I can't tell".
 
 Covey itself needs no API key. The Claude Code sessions use their own.
 
@@ -51,6 +51,8 @@ This writes `.claude/settings.json` and `.mcp.json` in the current directory, fo
 
 Both forms print the files they changed. Both ask you to restart any Claude Code sessions that are already open.
 
+If you use a non-default `COVEY_HOME` or `COVEY_PORT`, set it in Claude Code's environment too. See the last item in [Troubleshooting](#troubleshooting).
+
 ## 3. Start the daemon and check it
 
 ```
@@ -74,11 +76,11 @@ Each session registers as an agent named after its directory: `api` and `web`. T
 The first session for a name starts with an empty card: no summary, no tags, no capabilities. Later sessions keep whatever the card already says. The SessionStart hook tells the model: "You are agent `api` in the covey. Call `covey_describe` once you know what this repo does." The model then fills the card in. You can do it by hand too:
 
 ```
-covey describe api --summary "Orders API: FastAPI, Postgres, Alembic migrations" --tags orders,billing --capability run_tests=gated
+covey describe api --summary "Orders API: FastAPI, Postgres, Alembic migrations" --tags orders,billing --capability explain=open --capability run_tests=gated
 covey ps
 ```
 
-`--capability name=level[:note]` (or `covey_describe`) declares capabilities and replaces the whole list. Without a declared capability, a request for it needs your approval, because Covey treats an undeclared capability as gated.
+`--capability name=level[:note]` (or `covey_describe`) declares capabilities and replaces the whole list. Without a declared capability, a request for it needs your approval, because Covey treats an undeclared capability as gated. Step 5 asks for `explain`, which is now open, so it needs no approval. Step 6 asks for `run_tests`, which stays gated.
 
 Check that both are there:
 
