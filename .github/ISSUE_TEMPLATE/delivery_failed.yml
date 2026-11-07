@@ -1,0 +1,38 @@
+name: Delivery did not arrive
+description: A request or reply never reached the other agent
+labels: [bug, delivery]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: Who asked whom, and what did you see?
+      description: Say whether the target session was idle, busy, or not running.
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: Output of `covey log --json --limit 50`
+      description: Remove anything private from the task text first.
+      render: json
+    validations:
+      required: true
+  - type: textarea
+    id: doctor
+    attributes:
+      label: Output of `covey doctor --json`
+      render: json
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: Operating system and version
+    validations:
+      required: true
+  - type: input
+    id: claude
+    attributes:
+      label: Claude Code version (`claude --version`)
+    validations:
+      required: true
