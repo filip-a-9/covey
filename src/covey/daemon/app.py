@@ -412,7 +412,7 @@ class RegisterBody(Body):
     capabilities: list[dict[str, Any]] = []
     instructions: str | None = Field(default=None, max_length=4000)
     webhook_url: str | None = None
-    wakeable: bool | None = None  # omitted keeps the existing value on a takeover
+    wakeable: bool | None = None  # accepted but ignored: only the human token sets it
     session_id: str | None = None
     wake_socket: str | None = Field(default=None, max_length=200)
 
@@ -572,7 +572,9 @@ def create_app(cfg: Config, ignore_pids: frozenset[int] = frozenset()) -> FastAP
             daemon.conn,
             daemon.node.node_id,
             body.model_dump(
-                exclude_none=True, exclude_unset=True, exclude={"wake_socket"}
+                exclude_none=True,
+                exclude_unset=True,
+                exclude={"wake_socket", "wakeable"},
             ),
         )
         daemon.note_session(card["agent_id"], request, replace=True)

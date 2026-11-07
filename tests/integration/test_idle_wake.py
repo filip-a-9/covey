@@ -109,12 +109,21 @@ def human(wake_daemon):
 
 
 def register(tcp, daemon, slug, wake_socket=None, wakeable=False):
+    if wakeable:  # only the human token can set it: pre-add the agent, then register
+        with httpx.Client(
+            transport=httpx.HTTPTransport(uds=daemon.socket_path),
+            base_url="http://covey",
+            headers=auth(daemon.human_token),
+        ) as human:
+            made = human.post(
+                "/v1/agents", json={"slug": slug, "workdir": "/x", "wakeable": True}
+            )
+            assert made.status_code == 201, made.text
     body = {
         "slug": slug,
         "kind": "claude-code",
         "delivery": "hooks",
         "session_id": "s1",
-        "wakeable": wakeable,
         "capabilities": [
             {"name": "explain", "level": "open"},
             {"name": "run_tests", "level": "gated"},

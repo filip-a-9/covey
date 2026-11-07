@@ -6,6 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from covey.config import Config
+from covey.daemon import registry
 from covey.daemon.app import create_app
 
 
@@ -33,13 +34,12 @@ def daemon(app):
     return app.state.daemon
 
 
-def register(client, daemon, slug, wakeable=False):
+def register(client, daemon, slug):
     join = daemon.cfg.join_token_path.read_text().strip()
     body = {
         "slug": slug,
         "kind": "python",
         "delivery": "poll",
-        "wakeable": wakeable,
         "capabilities": [{"name": "explain", "level": "open"}],
     }
     r = client.post("/v1/agents/register", json=body, headers=auth(join))
@@ -55,8 +55,16 @@ def web(client, daemon):
 @pytest.fixture
 def docs_request(client, daemon, web):
     """`docs` is wakeable with no session, and `web` has asked it something."""
-    register(client, daemon, "docs", wakeable=True)
-    daemon.conn.execute("UPDATE agents SET liveness = 'wakeable' WHERE slug = 'docs'")
+    registry.create_agent(
+        daemon.conn,
+        daemon.node.node_id,
+        {
+            "slug": "docs",
+            "workdir": "/x",
+            "wakeable": True,
+            "capabilities": [{"name": "explain", "level": "open"}],
+        },
+    )
     r = client.post(
         "/v1/requests",
         json={"to": "docs", "capability": "explain", "task": "what is X?"},

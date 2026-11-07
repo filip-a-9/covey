@@ -545,3 +545,23 @@ def test_register_takeover_keeps_wakeable_and_worker(tcp, human, daemon):
     )
     card = r.json()["card"]
     assert (card["wakeable"], card["worker"]) == (True, {"max_turns": 2})
+
+
+def test_register_ignores_wakeable_from_the_join_token(tcp, human, daemon):
+    reg = {"slug": "docs", "kind": "claude-code", "delivery": "hooks"}
+    r = tcp.post(
+        "/v1/agents/register",
+        json={**reg, "wakeable": True},
+        headers=auth(daemon.join_token),
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["card"]["wakeable"] is False
+
+    # The human path still sets it, and a register cannot clear it.
+    human.post("/v1/agents", json={"slug": "wk", "workdir": "/x", "wakeable": True})
+    r = tcp.post(
+        "/v1/agents/register",
+        json={**reg, "slug": "wk", "wakeable": False},
+        headers=auth(daemon.join_token),
+    )
+    assert r.json()["card"]["wakeable"] is True
