@@ -581,13 +581,19 @@ def main(worker: bool = False) -> None:
     except IdentityError as exc:
         slug, identity_error = "", exc  # every tool reports it with the fix
     if not worker:
+        claude = find_claude(os.getppid())
+        if claude is None:
+            log(
+                "no `claude` process above this shim, so the human-token check is weaker. "
+                "Run `covey doctor`."
+            )
         shim = Shim(
             cfg,
             slug=slug,
             workdir=str(cwd),
             identity_error=identity_error,
             session_id=os.environ.get("CLAUDE_CODE_SESSION_ID"),
-            claude=find_claude(os.getppid()),
+            claude=claude,
         )
         build_server(shim).run("stdio")
         return

@@ -89,9 +89,11 @@ class Daemon:
         # Workers die with the daemon, so a `working` request left from before is lost.
         waker.recover(self.conn, self.node.node_id)
         self.waker = waker.Waker(self)
-        # agent_id -> (pid, start_time) of the process tree its session lives in. In memory
-        # only: it refills within one heartbeat after a restart.
-        self.session_pids: dict[str, peer.Root] = {}
+        # agent_id -> (pid, start_time) of the process tree its session lives in. In memory,
+        # re-derived at startup from the shims' session files.
+        self.session_pids: dict[str, peer.Root] = peer.roots_from_session_files(
+            cfg.home / "sessions", self.node.node_id, ignore_pids
+        )
         # agent_id -> path of its Claude Code messaging socket (idle wake). In memory only,
         # relearned on the next heartbeat. Never the socket's token.
         self.wake_sockets: dict[str, str] = {}
@@ -175,7 +177,8 @@ class Daemon:
                 replace
             ):  # a takeover from somewhere unreadable must not keep the old pid
                 self.session_pids.pop(agent_id, None)
-        else:
+        elif replace or agent_id not in self.session_pids:
+            # Only register and session attach set the root; a heartbeat keeps the first one.
             self.session_pids[agent_id] = root
 
     def note_wake_socket(self, agent_id: str, path: str | None) -> None:
@@ -273,8 +276,8 @@ class Daemon:
             task.cancel()
         await asyncio.gather(*self.wake_tasks, return_exceptions=True)
 
-    def agent_roots(self) -> dict[str, peer.Root]:
-        return {**self.session_pids, **self.waker.pids}
+    def agent_roots(self) -> dict[str, list[peer.Root]]:
+        return peer.merge_roots(self.session_pids, self.waker.pids)
 
     @property
     def conn(self) -> sqlite3.Connection:
@@ -324,14 +327,17 @@ def refuse_if_in_agent_tree(request: Request, daemon: Daemon) -> None:
     """Fail closed: the human token over the unix socket must come from outside every
     registered agent's process tree, and the peer must be identifiable."""
     pid = request.scope.get("covey_peer_pid")
-    if pid is None:
+    # The peer must still be the process that connected: an exited one proves nothing.
+    if pid is None or peer._start_time(pid) != request.scope.get("covey_peer_start"):
         raise CoveyError(
             403,
             "human_only",
             "Cannot tell which process made this call, so the human token is refused.",
             "Run `covey doctor` from your own terminal.",
         )
-    agent_id = peer.find_agent(pid, daemon.agent_roots(), skip=daemon.ignore_pids)
+    agent_id = peer.find_agent(
+        request.scope["covey_peer_chain"], daemon.agent_roots(), skip=daemon.ignore_pids
+    )
     if agent_id is not None:
         raise CoveyError(
             403,

@@ -16,6 +16,9 @@ import time
 import httpx
 import pytest
 
+from covey.config import Config
+from tests.integration.conftest import NO_CLAUDE, free_port, run_daemon
+
 CLIENT = r"""
 import http.client, json, socket, subprocess, sys
 
@@ -271,3 +274,199 @@ def test_a_session_that_started_the_daemon_is_still_refused(
         if pid_file.exists():
             with contextlib.suppress(ProcessLookupError, ValueError):
                 os.kill(int(pid_file.read_text()), 9)
+
+
+# --- S2 ancestry hardening: one test per escape ---------------------------------------
+
+ROOT = r"""
+import http.client, json, socket, subprocess, sys
+sock, human, join, slug = sys.argv[1:5]
+
+def call(method, url, token, body=None):
+    c = http.client.HTTPConnection("covey")
+    c.sock = socket.socket(socket.AF_UNIX)
+    c.sock.connect(sock)
+    c.request(method, url, json.dumps(body) if body is not None else None,
+              {"Authorization": "Bearer " + token, "Content-Type": "application/json"})
+    r = c.getresponse()
+    return r.status, r.read().decode()
+
+PROBE = '''
+import http.client, socket, sys
+c = http.client.HTTPConnection("covey")
+c.sock = socket.socket(socket.AF_UNIX)
+c.sock.connect(sys.argv[1])
+c.request("GET", "/v1/approvals", headers={"Authorization": "Bearer " + sys.argv[2]})
+print(c.getresponse().status, flush=True)
+'''
+FIRE = '''
+import os, socket, sys, json
+body = json.dumps({"requester": "alice", "target": "bob", "capability": sys.argv[3],
+                   "scope": "always"})
+req = ("POST /v1/grants HTTP/1.1\\r\\nHost: covey\\r\\nAuthorization: Bearer %s\\r\\n"
+       "Content-Type: application/json\\r\\nContent-Length: %d\\r\\nConnection: close\\r\\n\\r\\n%s"
+       % (sys.argv[2], len(body), body)).encode()
+s = socket.socket(socket.AF_UNIX); s.connect(sys.argv[1]); s.sendall(req)
+os._exit(0)
+'''
+REG = '''
+import http.client, json, socket, sys
+c = http.client.HTTPConnection("covey")
+c.sock = socket.socket(socket.AF_UNIX)
+c.sock.connect(sys.argv[1])
+c.request("POST", "/v1/agents/register", json.dumps({"slug": sys.argv[3], "kind": "python",
+          "delivery": "poll"}), {"Authorization": "Bearer " + sys.argv[2],
+          "Content-Type": "application/json"})
+print(c.getresponse().read().decode())
+'''
+if len(sys.argv) > 5:  # shim mode: a long-lived child registers, the root only probes
+    out = subprocess.run([sys.executable, "-c", REG, sock, join, slug],
+                         capture_output=True, text=True)
+    token = json.loads(out.stdout)["agent_token"]
+    print(json.dumps({"registered": 200, "token": token}), flush=True)
+else:
+  for slug_ in (slug,):
+    st, body = call("POST", "/v1/agents/register", join,
+                    {"slug": slug_, "kind": "python", "delivery": "poll"})
+    if slug_ == slug:
+        token = json.loads(body)["agent_token"]
+  print(json.dumps({"registered": st, "token": token}), flush=True)
+for line in sys.stdin:
+    cmd = line.split()
+    if cmd[0] == "probe":
+        out = subprocess.run([sys.executable, "-c", PROBE, sock, human],
+                             capture_output=True, text=True)
+        print(out.stdout.strip(), flush=True)
+    elif cmd[0] == "fire":
+        subprocess.run([sys.executable, "-c", FIRE, sock, human, cmd[1]]).check_returncode()
+        print("sent", flush=True)
+"""
+
+
+class Root:
+    """A fake session process named `name`, driven over stdin."""
+
+    def __init__(self, tmp_path, daemon, name="claude", slug="alice", via_shim=False):
+        link = tmp_path / "bin" / name
+        link.parent.mkdir(exist_ok=True)
+        if not link.exists():
+            link.symlink_to(sys.executable)
+        script = tmp_path / "root.py"
+        script.write_text(ROOT)
+        self.proc = subprocess.Popen(
+            [
+                str(link),
+                str(script),
+                daemon.socket_path,
+                daemon.human_token,
+                daemon.join_token,
+                slug,
+                *(["shim"] if via_shim else []),
+            ],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            text=True,
+        )
+        self.token = json.loads(self.proc.stdout.readline())["token"]
+
+    def cmd(self, line):
+        self.proc.stdin.write(line + "\n")
+        self.proc.stdin.flush()
+        return self.proc.stdout.readline().strip()
+
+    def close(self):
+        self.proc.stdin.close()
+        self.proc.wait(10)
+
+
+def human_client(daemon):
+    return httpx.Client(
+        transport=httpx.HTTPTransport(uds=daemon.socket_path),
+        base_url="http://covey",
+        headers={"Authorization": f"Bearer {daemon.human_token}"},
+    )
+
+
+BEAT = """
+import http.client, socket, sys
+c = http.client.HTTPConnection("covey")
+c.sock = socket.socket(socket.AF_UNIX)
+c.sock.connect(sys.argv[1])
+c.request("POST", "/v1/agents/" + sys.argv[3] + "/heartbeat",
+          headers={"Authorization": "Bearer " + sys.argv[2]})
+print(c.getresponse().status)
+"""
+
+
+def outside_beat(daemon, slug, token):
+    """A heartbeat from a process of its own, outside every agent's tree."""
+    out = subprocess.run(
+        [sys.executable, "-c", BEAT, daemon.socket_path, token, slug],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return int(out.stdout)
+
+
+def test_f1_a_child_that_exits_at_once_does_not_get_a_grant(daemon, tmp_path):
+    with httpx.Client(base_url=daemon.base_url) as tcp:  # the grant's target, no root
+        tcp.post(
+            "/v1/agents/register",
+            json={"slug": "bob", "kind": "python", "delivery": "poll"},
+            headers={"Authorization": f"Bearer {daemon.join_token}"},
+        ).raise_for_status()
+    root = Root(tmp_path, daemon)
+    try:
+        for i in range(20):
+            assert root.cmd(f"fire cap{i}") == "sent"
+        time.sleep(0.5)
+        with human_client(daemon) as c:
+            grants = c.get("/v1/grants").json()
+        assert not grants.get("grants", grants)
+    finally:
+        root.close()
+
+
+def test_f8_a_heartbeat_from_outside_does_not_replace_the_session_root(
+    daemon, tmp_path
+):
+    root = Root(tmp_path, daemon)
+    try:
+        assert root.cmd("probe") == "403"
+        outside_beat(daemon, "alice", root.token)  # whatever its status, no new root
+        assert root.cmd("probe") == "403"
+    finally:
+        root.close()
+
+
+def test_f10_roots_survive_a_daemon_restart(short_home, tmp_path):
+    from covey.mcp.identity import write_session_file
+    from covey.procs import _start_time
+
+    cfg = Config(
+        home=short_home / "h",
+        port=free_port(),
+        sweep_interval_s=0.2,
+        claude_bin=NO_CLAUDE,
+    )
+    with run_daemon(cfg) as d:
+        root = Root(tmp_path, d)
+        # what the real shim does after registering
+        pid = root.proc.pid
+        write_session_file(
+            cfg, {"pid": pid, "start_time": _start_time(pid)}, "alice", root.token
+        )
+    try:
+        with run_daemon(cfg):
+            assert root.cmd("probe") == "403"  # no heartbeat since the restart
+    finally:
+        root.close()
+
+
+def test_f11_a_session_without_a_claude_ancestor_is_still_checked(daemon, tmp_path):
+    root = Root(tmp_path, daemon, name="node", via_shim=True)
+    try:
+        assert root.cmd("probe") == "403"
+    finally:
+        root.close()

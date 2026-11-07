@@ -5,11 +5,13 @@ agent's process tree (a session, or a running headless worker) is refused. A pro
 double-forks out of the tree escapes it (accepted; see the trust spec).
 """
 
+import json
 import os
 import socket
 import struct
 import sys
-from collections.abc import Callable, Collection, Mapping
+from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
+from pathlib import Path
 from typing import Any
 
 from covey.procs import _parent_and_argv0, _start_time
@@ -58,36 +60,91 @@ def own_ancestry(table: Table = _parent_and_argv0) -> set[int]:
     return {pid for pid, _ in ancestors(os.getpid(), table)}
 
 
+def session_id(pid: int) -> int | None:
+    """The pid's session id (the setsid boundary), or None where it cannot be read."""
+    if sys.platform != "linux":
+        return None
+    try:
+        stat = Path(f"/proc/{pid}/stat").read_text()
+    except OSError:
+        return None
+    return int(stat.rsplit(")", 1)[1].split()[3])  # field 6
+
+
+def roots_from_session_files(
+    sessions: Path, node_id: str, skip: Collection[int] = ()
+) -> dict[str, Root]:
+    """Roots of live sessions, from the shims' `claude-<pid>.json` files (slug, pid and
+    start time; the token in them is never read). A recycled pid does not match."""
+    roots: dict[str, Root] = {}
+    for path in sessions.glob("claude-*.json"):
+        try:
+            data = json.loads(path.read_text())
+            pid, start = int(data["claude_pid"]), str(data["claude_start_time"])
+            agent_id = f"{data['slug']}@{node_id}"
+        except (KeyError, ValueError, TypeError, OSError):
+            continue
+        if pid not in skip and _start_time(pid) == start:
+            roots[agent_id] = (pid, start)
+    return roots
+
+
+def peer_chain(pid: int, table: Table = _parent_and_argv0) -> list[int] | None:
+    """The peer and its ancestors, or None when the peer's own entry is gone (it exited):
+    a walk that does not start with the peer proves nothing about who called."""
+    chain = [p for p, _ in ancestors(pid, table)]
+    return chain if chain and chain[0] == pid else None
+
+
 def session_root(
     peer: int,
     table: Table = _parent_and_argv0,
     start_time: StartTime = _start_time,
     skip: Collection[int] = (),
+    session: Callable[[int], int | None] = session_id,
 ) -> Root | None:
-    """The nearest `claude` above `peer` (or `peer` itself without one), as (pid, start_time).
+    """The nearest `claude` above `peer`, as (pid, start_time). Without one, the oldest
+    ancestor in the peer's own session (setsid boundary), or `peer` where that is unknown.
     Processes in `skip` (the daemon's own ancestry) are never chosen."""
     chain = [(pid, argv0) for pid, argv0 in ancestors(peer, table) if pid not in skip]
+    if not chain or chain[0][0] != peer:
+        return None
     pick = next(
         (pid for pid, argv0 in chain if os.path.basename(argv0) == "claude"), None
     )
     if pick is None:
-        pick = next((pid for pid, _ in chain if pid == peer), None)
-    if pick is None:
-        return None
+        pick = peer
+        sid = session(peer)
+        for pid, _ in chain:
+            if sid is None or session(pid) != sid:
+                break
+            pick = pid
     start = start_time(pick)
     return None if start is None else (pick, start)
 
 
+def merge_roots(*sources: Mapping[str, Root]) -> dict[str, list[Root]]:
+    """Every root of every agent: a worker's root must not hide the same agent's session."""
+    merged: dict[str, list[Root]] = {}
+    for source in sources:
+        for agent_id, root in source.items():
+            merged.setdefault(agent_id, []).append(root)
+    return merged
+
+
 def find_agent(
-    peer: int,
-    roots: Mapping[str, Root],
-    table: Table = _parent_and_argv0,
+    chain: Iterable[int],
+    roots: Mapping[str, Sequence[Root]],
     start_time: StartTime = _start_time,
     skip: Collection[int] = (),
 ) -> str | None:
-    """The agent_id whose root (pid and start time) is `peer` or one of its ancestors."""
-    by_pid = {pid: (agent_id, start) for agent_id, (pid, start) in roots.items()}
-    for pid, _ in ancestors(peer, table):
+    """The agent_id with a root (pid and start time) in `chain`, the peer and its ancestors."""
+    by_pid = {
+        pid: (agent_id, start)
+        for agent_id, agent_roots in roots.items()
+        for pid, start in agent_roots
+    }
+    for pid in chain:
         if pid in skip or pid not in by_pid:
             continue
         agent_id, start = by_pid[pid]
@@ -104,11 +161,21 @@ def peer_protocol(base: type) -> type:
         def connection_made(self, transport: Any) -> None:
             super().connection_made(transport)
             pid = peer_pid(transport.get_extra_info("socket"))
+            # Resolved now, while the peer is alive: a peer already gone has no chain.
+            chain = peer_chain(pid) if pid is not None else None
+            start = _start_time(pid) if chain else None
+            if chain is None or start is None:
+                pid, chain = None, None
             inner = self.app
 
             async def app(scope: Any, receive: Any, send: Any) -> None:
                 if scope["type"] in ("http", "websocket"):
-                    scope = {**scope, "covey_peer_pid": pid}
+                    scope = {
+                        **scope,
+                        "covey_peer_pid": pid,
+                        "covey_peer_chain": chain,
+                        "covey_peer_start": start,
+                    }
                 await inner(scope, receive, send)
 
             self.app = app
