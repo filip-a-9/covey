@@ -50,9 +50,10 @@ def ancestors(
     return chain
 
 
-def daemon_ancestry(table: Table = _parent_and_argv0) -> set[int]:
-    """coveyd's own pid and its ancestors. Computed per check: coveyd is reparented once
-    `covey up` exits."""
+def own_ancestry(table: Table = _parent_and_argv0) -> set[int]:
+    """This process's pid and its ancestors. A test daemon running inside pytest passes them as
+    `serve(ignore_pids=...)`, so an outer Claude session running the suite is not a session
+    root. coveyd itself ignores nothing: `launch.ensure_daemon` detaches it from its caller."""
     return {pid for pid, _ in ancestors(os.getpid(), table)}
 
 

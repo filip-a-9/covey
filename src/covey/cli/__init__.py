@@ -47,20 +47,35 @@ def fail(as_json: bool, message: str, **extra: Any) -> typer.Exit:
     return typer.Exit(1)
 
 
-def whoami(cfg: Config) -> dict[str, Any] | None:
-    """GET /v1/whoami as the human; None if the daemon does not answer."""
+def probe(cfg: Config) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    """GET /v1/whoami as the human: (body, None) on success, (None, error) if the daemon
+    refuses (such as `human_only` from inside an agent session), (None, None) if it does
+    not answer."""
     if not cfg.socket_path.exists() or not cfg.token_path.exists():
-        return None
+        return None, None
     try:
         with human_client(cfg, timeout=2.0) as c:
             r = c.get("/v1/whoami")
-    except httpx.HTTPError:
-        return None
-    return r.json() if r.status_code == 200 else None
+        body = r.json()
+    except (httpx.HTTPError, ValueError):
+        return None, None
+    if r.status_code == 200:
+        return body, None
+    return None, (body.get("error") if isinstance(body, dict) else None)
 
 
-def running_info(cfg: Config) -> dict[str, Any] | None:
-    who = whoami(cfg)
+def whoami(cfg: Config, as_json: bool = False) -> dict[str, Any] | None:
+    """The daemon's whoami, or None if it does not answer. A refusal is printed with the
+    daemon's reason, and the command exits."""
+    body, err = probe(cfg)
+    if err:
+        message = f"{err.get('message', '')} {err.get('next_step', '')}".strip()
+        raise fail(as_json, message, code=err.get("code"))
+    return body
+
+
+def running_info(cfg: Config, as_json: bool = False) -> dict[str, Any] | None:
+    who = whoami(cfg, as_json)
     if who is None:
         return None
     return {
@@ -81,7 +96,7 @@ def up(
 ) -> None:
     """Start the daemon."""
     cfg = load_cfg()
-    info = running_info(cfg)
+    info = running_info(cfg, as_json)
     if info:
         out(as_json, info, f"coveyd is already running (pid {info['pid']}).")
         return
@@ -94,7 +109,7 @@ def up(
         ensure_daemon(cfg)
     except LaunchError as exc:
         raise fail(as_json, str(exc), log=str(cfg.log_path)) from exc
-    info = running_info(cfg)
+    info = running_info(cfg, as_json)
     if info is None:
         raise fail(
             as_json,
@@ -121,7 +136,7 @@ def down(as_json: JsonOpt = False) -> None:
             "coveyd is not running." + (" Removed a stale pidfile." if stale else ""),
         )
         return
-    if running_info(cfg) is None:
+    if running_info(cfg, as_json) is None:
         # The pid is alive but no coveyd answers on the socket: after a crash or reboot the
         # OS may have given that pid to an unrelated process, so never signal it blindly.
         raise fail(
@@ -151,7 +166,7 @@ def down(as_json: JsonOpt = False) -> None:
 def status(as_json: JsonOpt = False) -> None:
     """Show whether the daemon is running."""
     cfg = load_cfg()
-    info = running_info(cfg)
+    info = running_info(cfg, as_json)
     if info is None:
         message = "coveyd is not running. Run `covey up`."
         if as_json:
@@ -206,7 +221,7 @@ def log(
     cfg = load_cfg()
     params = {"thread": thread, "agent": agent, "since": since, "limit": limit}
     params = {k: v for k, v in params.items() if v is not None}
-    if whoami(cfg) is None:
+    if whoami(cfg, as_json) is None:
         raise fail(as_json, "coveyd is not running. Run `covey up`.")
     with human_client(cfg) as c:
         r = c.get("/v1/log", params=params)

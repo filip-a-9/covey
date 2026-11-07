@@ -63,7 +63,7 @@ class WorkerAuth:
 
 
 class Daemon:
-    def __init__(self, cfg: Config):
+    def __init__(self, cfg: Config, ignore_pids: frozenset[int] = frozenset()):
         self.cfg = cfg
         self.node = store.init_home(cfg)
         self.conn = store.connect(cfg.db_path)
@@ -77,6 +77,9 @@ class Daemon:
         # agent_id -> (pid, start_time) of the process tree its session lives in. In memory
         # only: it refills within one heartbeat after a restart.
         self.session_pids: dict[str, peer.Root] = {}
+        # Never a session root and never matched. Empty in production; a test daemon running
+        # inside pytest passes pytest's own ancestry, which may include a real `claude`.
+        self.ignore_pids = ignore_pids
         notify.configure(cfg.notify)
         self.human_watchers = 0  # open human event streams and approval long-polls
         self._changed: asyncio.Condition | None = None
@@ -132,7 +135,7 @@ class Daemon:
         pid = request.scope.get("covey_peer_pid")
         root = None
         if transport_of(request) == "unix" and pid is not None:
-            root = peer.session_root(pid, skip=peer.daemon_ancestry())
+            root = peer.session_root(pid, skip=self.ignore_pids)
         if root is None:
             if (
                 replace
@@ -185,7 +188,7 @@ def refuse_if_in_agent_tree(request: Request, daemon: Daemon) -> None:
             "Cannot tell which process made this call, so the human token is refused.",
             "Run `covey doctor` from your own terminal.",
         )
-    agent_id = peer.find_agent(pid, daemon.agent_roots(), skip=peer.daemon_ancestry())
+    agent_id = peer.find_agent(pid, daemon.agent_roots(), skip=daemon.ignore_pids)
     if agent_id is not None:
         raise CoveyError(
             403,
@@ -383,9 +386,9 @@ def forbidden(message: str, next_step: str) -> CoveyError:
     return CoveyError(403, "forbidden", message, next_step)
 
 
-def create_app(cfg: Config) -> FastAPI:
+def create_app(cfg: Config, ignore_pids: frozenset[int] = frozenset()) -> FastAPI:
     app = FastAPI(title="coveyd", version=API_VERSION, docs_url=None, redoc_url=None)
-    app.state.daemon = Daemon(cfg)
+    app.state.daemon = Daemon(cfg, ignore_pids)
 
     @app.exception_handler(CoveyError)
     async def covey_error(_: Request, exc: CoveyError) -> JSONResponse:
@@ -855,12 +858,14 @@ async def serve(
     cfg: Config,
     ready: asyncio.Event | None = None,
     stop: asyncio.Event | None = None,
+    ignore_pids: frozenset[int] = frozenset(),
 ) -> None:
     """Run the app on the unix socket and on 127.0.0.1:PORT until stopped.
 
     Stops on SIGTERM/SIGINT (main thread only), when `stop` is set, or when cancelled.
     `ready` is set once both servers are listening. Failures to start raise SystemExit
-    with a message that says what to do.
+    with a message that says what to do. `ignore_pids` is for test daemons only
+    (see `peer.own_ancestry`).
     """
     if _socket_answers(cfg.socket_path):
         raise SystemExit(
@@ -874,7 +879,7 @@ async def serve(
     tasks: list[asyncio.Task] = []
     servers: list[_Server] = []
     try:
-        app = create_app(cfg)
+        app = create_app(cfg, ignore_pids)
         cfg.socket_path.unlink(missing_ok=True)  # stale: nothing answered above
         unix_sock = _bind_unix(cfg.socket_path)
         for sock, transport in ((unix_sock, "unix"), (tcp_sock, "tcp")):

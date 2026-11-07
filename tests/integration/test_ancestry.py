@@ -6,6 +6,7 @@ children speak raw HTTP over the unix socket with the stdlib (a symlinked interp
 not see the venv's site-packages).
 """
 
+import contextlib
 import json
 import os
 import subprocess
@@ -162,3 +163,73 @@ def test_human_token_is_refused_when_the_peer_pid_is_unreadable(daemon, monkeypa
     assert r.status_code == 403
     assert r.json()["error"]["code"] == "human_only"
     assert "doctor" in r.json()["error"]["next_step"]
+
+
+SHIM_SESSION = r"""
+import subprocess, sys
+python, client, home = sys.argv[1:4]
+# Like the real shim: a long-lived child of `claude` that starts coveyd if none answers,
+# then registers. The human call comes from a sibling, as a Bash tool call would.
+START = (
+    "import httpx; from covey import config; from covey.launch import ensure_daemon\n"
+    "cfg = config.load(); ensure_daemon(cfg)\n"
+    "c = httpx.Client(transport=httpx.HTTPTransport(uds=str(cfg.socket_path)), base_url='http://c')\n"
+    "r = c.post('/v1/agents/register', json={'slug': 'alice', 'kind': 'python', 'delivery': 'poll'},\n"
+    "           headers={'Authorization': 'Bearer ' + cfg.join_token_path.read_text().strip()})\n"
+    "assert r.status_code == 200, r.text\n"
+    "print('UP', flush=True); input()\n"
+)
+if len(sys.argv) > 4:  # coveyd started straight from the session, as `coveyd &` would
+    daemon = subprocess.Popen([python, "-m", "covey.daemon"], stdin=subprocess.DEVNULL,
+                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    import socket, time
+    for _ in range(100):
+        try:
+            socket.socket(socket.AF_UNIX).connect(f"{home}/covey.sock")
+            break
+        except OSError:
+            time.sleep(0.1)
+shim = subprocess.Popen([python, "-c", START], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                        text=True)
+assert shim.stdout.readline().strip() == "UP"
+read = lambda name: open(f"{home}/{name}").read().strip()
+subprocess.run([sys.executable, client, "human", f"{home}/covey.sock",
+                read("token"), read("join-token"), "alice"], check=True)
+shim.stdin.close()
+shim.wait(10)
+if len(sys.argv) > 4:
+    daemon.kill()
+"""
+
+
+@pytest.mark.parametrize("started_by", ["shim", "session"])
+def test_a_session_that_started_the_daemon_is_still_refused(
+    started_by, short_home, monkeypatch, client, fake_claude, tmp_path
+):
+    from tests.integration.conftest import free_port
+
+    home = short_home / "h"
+    monkeypatch.setenv("COVEY_HOME", str(home))
+    monkeypatch.setenv("COVEY_PORT", str(free_port()))
+    script = tmp_path / "session.py"
+    script.write_text(SHIM_SESSION)
+    try:
+        out = subprocess.run(
+            [str(fake_claude), str(script), sys.executable, str(client), str(home)]
+            + (["direct"] if started_by == "session" else []),
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        assert out.returncode == 0, out.stderr
+        (result,) = [
+            json.loads(x) for x in out.stdout.splitlines() if x.startswith("{")
+        ]
+        assert result["status"] == 403
+        assert result["data"]["error"]["code"] == "human_only"
+    finally:
+        pid_file = home / "coveyd.pid"
+        if pid_file.exists():
+            with contextlib.suppress(ProcessLookupError, ValueError):
+                os.kill(int(pid_file.read_text()), 9)

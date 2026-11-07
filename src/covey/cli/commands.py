@@ -14,9 +14,10 @@ from typing import Annotated, Any
 import httpx
 import typer
 
-from covey.cli import JsonOpt, app, fail, load_cfg, out, slug, whoami
+from covey.cli import JsonOpt, app, fail, load_cfg, out, probe, slug, whoami
 from covey.cli.client import human_client
 from covey.cli.init import HOOKS
+from covey.launch import daemon_answers
 
 FINAL = ("done", "failed", "refused", "expired")
 
@@ -26,7 +27,7 @@ def call(
 ) -> dict[str, Any]:
     """One daemon call as the human; on any failure raise an Exit with the next step."""
     cfg = load_cfg()
-    if whoami(cfg) is None:
+    if whoami(cfg, as_json) is None:
         raise fail(as_json, "coveyd is not running. Run `covey up`.")
     try:
         with human_client(cfg, timeout=timeout) as c:
@@ -509,7 +510,8 @@ def port_check(port: int) -> dict[str, Any]:
 def doctor(as_json: JsonOpt = False) -> None:
     """Check the daemon, tokens, hooks, Claude Code and the port; print a fix for each failure."""
     cfg = load_cfg()
-    running = whoami(cfg) is not None
+    running = daemon_answers(cfg)
+    _, refusal = probe(cfg)
     checks = [
         check(
             "socket",
@@ -520,6 +522,14 @@ def doctor(as_json: JsonOpt = False) -> None:
             "Run `covey up`.",
         ),
         token_check(cfg),
+        check(
+            "human token",
+            refusal is None,
+            refusal.get("message", "refused")
+            if refusal
+            else ("accepted" if running else "not checked: coveyd is not running"),
+            (refusal or {}).get("next_step", ""),
+        ),
         *install_checks(),
         claude_check(),
         port_check(cfg.port),

@@ -339,3 +339,32 @@ def test_agent_add_bad_capability_fails_before_calling_the_daemon(env, tmp_path,
     )
     assert "name:level" in data["error"]
     assert cli_json("ps")["agents"] == []
+
+
+@pytest.fixture
+def refused(monkeypatch):
+    """The daemon cannot identify the caller, so it refuses the human token (fail closed)."""
+    from covey.daemon import peer
+
+    monkeypatch.setattr(peer, "peer_pid", lambda sock: None)
+
+
+def test_a_refused_human_token_shows_the_daemons_reason_not_not_running(
+    env, refused, tcp, web, api
+):
+    rid = gated_request(tcp, web)
+    data = cli_json("approve", rid, expect=1)
+    assert data["code"] == "human_only"
+    assert "doctor" in data["error"]  # the daemon's next step reached the user
+
+
+def test_status_reports_a_refusal_as_a_refusal(env, refused):
+    data = cli_json("status", expect=1)
+    assert data["code"] == "human_only"
+
+
+def test_doctor_reports_a_refused_human_token_as_a_failed_check(env, refused):
+    data = cli_json("doctor", expect=1)
+    checks = {c["name"]: c for c in data["checks"]}
+    assert checks["socket"]["ok"]  # coveyd is up; it is the token that is refused
+    assert not checks["human token"]["ok"]

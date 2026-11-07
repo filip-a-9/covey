@@ -72,27 +72,48 @@ def _answers_within(cfg: Config, seconds: float) -> bool:
     return False
 
 
+# Runs in a short-lived intermediate process: start coveyd in its own session, print its pid,
+# and exit. coveyd is then reparented away from the caller at once. Without this, a shim that
+# starts coveyd stays its parent, and that Claude session sits above the daemon for its whole
+# life, where the human-token ancestry check cannot tell it apart from the daemon's own
+# ancestry.
+_DETACH = """
+import subprocess, sys
+p = subprocess.Popen([sys.executable, "-m", "covey.daemon"], stdin=subprocess.DEVNULL,
+                     stdout=sys.stderr, stderr=sys.stderr, start_new_session=True)
+print(p.pid)
+"""
+
+
 def ensure_daemon(cfg: Config, timeout_s: float = 10.0) -> None:
     """Return once coveyd answers on the socket, starting it if needed."""
     if daemon_answers(cfg):
         return
     cfg.home.mkdir(mode=0o700, parents=True, exist_ok=True)
     with open(cfg.log_path, "ab") as log:
-        child = subprocess.Popen(
-            [sys.executable, "-m", "covey.daemon"],
+        starter = subprocess.run(
+            [sys.executable, "-c", _DETACH],
             stdin=subprocess.DEVNULL,
-            stdout=log,
+            stdout=subprocess.PIPE,
             stderr=log,
-            start_new_session=True,
+            check=False,
+            timeout=timeout_s,
         )
+    try:
+        pid = int(starter.stdout.strip())
+    except ValueError:
+        raise LaunchError(
+            f"coveyd could not be started. Last log lines:\n{last_log_lines(cfg)}\n"
+            f"Fix the problem above, then run `covey up` again. Full log: {cfg.log_path}"
+        ) from None
     deadline = time.monotonic() + timeout_s
     while time.monotonic() < deadline:
-        if child.poll() is not None:
+        if not pid_alive(pid):
             # Another shim may have started coveyd at the same moment and won the bind.
             if _answers_within(cfg, 2.0):
                 return
             raise LaunchError(
-                f"coveyd exited with code {child.returncode}. Last log lines:\n"
+                f"coveyd exited. Last log lines:\n"
                 f"{last_log_lines(cfg)}\nFix the problem above, then run `covey up` again. "
                 f"Full log: {cfg.log_path}"
             )

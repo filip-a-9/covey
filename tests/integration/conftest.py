@@ -13,6 +13,7 @@ from pathlib import Path
 import pytest
 
 from covey.config import Config
+from covey.daemon import peer
 from covey.daemon.app import serve
 
 # `claude` is installed on dev machines: no test may spawn the real one (it costs money).
@@ -64,7 +65,11 @@ def run_daemon(cfg: Config) -> Iterator[RunningDaemon]:
     async def run() -> None:
         ready, stop = asyncio.Event(), asyncio.Event()
         handles["loop"], handles["stop"] = asyncio.get_running_loop(), stop
-        task = asyncio.create_task(serve(cfg, ready=ready, stop=stop))
+        # pytest may itself run under Claude Code: that session is not one of the test's agents.
+        ignore = frozenset(peer.own_ancestry())
+        task = asyncio.create_task(
+            serve(cfg, ready=ready, stop=stop, ignore_pids=ignore)
+        )
         waiter = asyncio.create_task(ready.wait())
         await asyncio.wait({task, waiter}, return_when=asyncio.FIRST_COMPLETED)
         if task.done():

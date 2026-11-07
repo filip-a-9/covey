@@ -1,8 +1,13 @@
 # Now
 
-**Current slice:** trust, code done (`.claude/specs/trust.md`). Not yet checked against a real session: an
-agent's `covey approve` through Bash must be refused with `human_only`, the same command from the user's
-terminal must pass, and the WSL toast must appear only while `covey top` is closed. Next: docs + hero GIF.
+**Current slice:** trust, done (`.claude/specs/trust.md`, `.claude/specs/trust-followups.md` items 1–2).
+Checked in a real Claude Code session, with coveyd started the way the shim starts it:
+- `covey approve` from inside the session is refused and names the agent.
+- The same command from outside the session's process tree succeeds.
+- `covey doctor` shows the refusal.
+- Not yet seen: the toast on screen.
+
+Next: docs + hero GIF.
 
 **Done:**
 - Schemas; `coveyd` serving every `api.yaml` operation.
@@ -36,17 +41,30 @@ terminal must pass, and the WSL toast must appear only while `covey top` is clos
 - stop-claim stamps the request before the hook prints the block; a hook killed in between strands it.
 - `covey doctor` should report the active notify backend. coveyd started without Windows PATH interop
   (systemd, some `uv` setups) can't find `powershell.exe` and silently logs only.
+- `test_lifecycle.py::test_two_shims_starting_the_daemon_at_once_both_get_it` leaks one coveyd per run. A
+  pidfile race is suspected, which would also hit two sessions opening at once
+  (`.claude/specs/trust-followups.md` item 3).
 - `PUT /v1/agents/{slug}/session` doesn't record a session root. Only register and heartbeat do, so after
   `/clear` the root waits for the next heartbeat (≤20 s).
 - `covey init` writes bare `covey hook ...`; under `uv run` in a dev checkout that needs the venv on PATH.
   Add `--command`?
 
 **Learned this week:**
+- Real-session check, Claude Code 2.1.319, from inside a session:
+  - Its Bash process tree has `claude` as argv0, so the walk finds it.
+  - With coveyd started outside, the daemon refuses `covey approve` from inside and accepts it from a
+    process outside the tree.
+  - The text reaches `powershell.exe` through `WSLENV` unchanged, and `$(...)` isn't run.
+  - The toast `Show()` succeeds. No one has seen it on screen yet.
+  - No notification while a `/v1/events` stream is open; one after it closes.
 - uvicorn 0.54 has no hook for the peer socket. Subclassing its HTTP protocol class and wrapping
   `self.app` in `connection_made` puts the peer pid in every request scope. Setting `conf.http` after
   `load()` has no effect: pass `http=` to a fresh `Config`.
-- A test daemon runs inside pytest, which may itself run under Claude Code. The ancestry check ignores
-  coveyd's own ancestors, or the outer `claude` would refuse every human call.
+- The shim auto-starts coveyd. Unless it is detached through an intermediate process, the first session
+  stays coveyd's parent. `ensure_daemon` now detaches it. Claude Code is not a subreaper: the detached
+  coveyd ends up under WSL's init relay.
+- A test daemon runs inside pytest, which may itself run under Claude Code. It passes
+  `serve(ignore_pids=peer.own_ancestry())`. Production ignores nothing.
 - Ranking by token overlap wins 18 of 20 realistic queries over eight cards. The two misses need stemming
   or synonyms.
 - uvicorn chmods a unix socket it binds itself to 0666, so `coveyd` binds both sockets itself.
