@@ -118,6 +118,45 @@ def test_register_takes_over_a_gone_slug_in_place_and_rotates_token(conn, node):
     assert card["summary"] == "Second life."
 
 
+def _go_gone(conn):
+    with store.transaction(conn):
+        conn.execute("UPDATE agents SET liveness = 'gone' WHERE slug = 'api'")
+
+
+def test_takeover_keeps_the_description_the_body_omits(conn, node):
+    caps = [{"name": "run_tests", "level": "gated", "note": "slow"}]
+    reg(
+        conn,
+        node,
+        summary="Owns orders.",
+        tags=["orders"],
+        capabilities=caps,
+        instructions="Ask in plain words.",
+    )
+    _go_gone(conn)
+    card, _ = reg(conn, node)
+    assert card["summary"] == "Owns orders."
+    assert card["tags"] == ["orders"]
+    assert card["capabilities"] == caps
+    assert card["instructions"] == "Ask in plain words."
+
+
+def test_takeover_body_overrides_only_the_fields_it_sends(conn, node):
+    caps = [{"name": "explain", "level": "open"}]
+    reg(conn, node, summary="Old.", tags=["orders"], capabilities=caps)
+    _go_gone(conn)
+    card, _ = reg(conn, node, summary="New.")
+    assert card["summary"] == "New."
+    assert card["tags"] == ["orders"]
+    assert card["capabilities"] == caps
+
+
+def test_first_registration_has_an_empty_description(conn, node):
+    card, _ = reg(conn, node)
+    assert (card["summary"], card["tags"], card["capabilities"]) == ("", [], [])
+    assert "instructions" not in card
+
+
 def test_takeover_keeps_foreign_keys_valid(conn, node):
     reg(conn, node, "caller")
     reg(conn, node, "api")

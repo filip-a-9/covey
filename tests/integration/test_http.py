@@ -372,6 +372,27 @@ def test_whoami_for_an_agent(tcp, web):
     assert body["covey"] == "1"
 
 
+def test_a_shim_registering_keeps_the_card_the_human_set(tcp, daemon, human, tmp_path):
+    caps = [{"name": "run_tests", "level": "gated"}]
+    r = human.post(
+        "/v1/agents",
+        json={
+            "slug": "api",
+            "workdir": str(tmp_path),
+            "summary": "owns the orders API",
+            "capabilities": caps,
+        },
+    )
+    assert r.status_code < 300, r.text
+    # What the shim sends: no description fields at all.
+    shim_body = {"slug": "api", "kind": "claude-code", "delivery": "hooks"}
+    r = tcp.post("/v1/agents/register", json=shim_body, headers=auth(daemon.join_token))
+    assert r.status_code == 200, r.text
+    card = tcp.get("/v1/whoami", headers=auth(r.json()["agent_token"])).json()["card"]
+    assert card["summary"] == "owns the orders API"
+    assert card["capabilities"] == caps
+
+
 def test_human_can_ask_and_read_any_inbox(tcp, human, api):
     r = human.post(
         "/v1/requests",

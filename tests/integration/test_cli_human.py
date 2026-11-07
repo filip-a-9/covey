@@ -135,6 +135,31 @@ def test_describe_edits_another_agents_card(env, web, api):
     assert data["card"]["tags"] == ["auth", "jwt"]
 
 
+def test_describe_capability_replaces_the_list(env, web, api):
+    data = cli_json(
+        "describe",
+        "api",
+        "--capability",
+        "run_tests=gated:slow suite",
+        "--capability",
+        "search=open",
+    )
+    assert data["card"]["capabilities"] == [
+        {"name": "run_tests", "level": "gated", "note": "slow suite"},
+        {"name": "search", "level": "open"},
+    ]
+
+
+@pytest.mark.parametrize("bad", ["run_tests", "run_tests=maybe", "Bad Name=open"])
+def test_describe_bad_capability_fails_and_changes_nothing(env, api, bad):
+    cli("describe", "api", "--capability", bad, expect=1)
+    after = cli_json("describe", "api", "--summary", "same")
+    assert {c["name"] for c in after["card"]["capabilities"]} == {
+        "explain",
+        "run_tests",
+    }
+
+
 def test_describe_without_fields_fails(env, api):
     cli("describe", "api", expect=1)
 

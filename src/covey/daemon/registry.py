@@ -251,6 +251,11 @@ def register(
             card["wakeable"] = old.get("wakeable", False)
         if "worker" in old:
             card["worker"] = old["worker"]
+        # Likewise the description: a shim sends none, and a new session must not
+        # blank what covey agent add / covey describe set. A field in the body wins.
+        for field in DESCRIBABLE:
+            if field not in body and field in old:
+                card[field] = old[field]
         _validate(card)
         if row is None:
             conn.execute(

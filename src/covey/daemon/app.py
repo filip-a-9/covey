@@ -563,7 +563,9 @@ def create_app(cfg: Config, ignore_pids: frozenset[int] = frozenset()) -> FastAP
         card, token = registry.register(
             daemon.conn,
             daemon.node.node_id,
-            body.model_dump(exclude_none=True, exclude={"wake_socket"}),
+            body.model_dump(
+                exclude_none=True, exclude_unset=True, exclude={"wake_socket"}
+            ),
         )
         daemon.note_session(card["agent_id"], request, replace=True)
         daemon.note_wake_socket(card["agent_id"], body.wake_socket)

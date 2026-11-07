@@ -5,6 +5,7 @@ the human token and prints a table, or the daemon's JSON with `--json`.
 """
 
 import json
+import re
 import shutil
 import socket
 import subprocess
@@ -220,11 +221,39 @@ def inbox(
     out(as_json, payload, format_requests(payload["requests"], "Nothing waiting."))
 
 
+CAPABILITY_NAME = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,63}$")  # card.json pattern
+
+
+def parse_capability(as_json: bool, item: str) -> dict[str, str]:
+    """`name=level[:note]` -> one card capability; Exit with the format on error."""
+    name, eq, rest = item.partition("=")
+    level, _, note = rest.partition(":")
+    name, level, note = name.strip(), level.strip(), note.strip()
+    if not eq or level not in LEVELS or not CAPABILITY_NAME.match(name):
+        raise fail(
+            as_json,
+            f"Capability {item!r} is not name=level[:note]. Use e.g. "
+            f"`--capability run_tests=gated:slow` (levels: {', '.join(LEVELS)}; "
+            "name: lowercase letters, digits, _ . -).",
+        )
+    cap = {"name": name, "level": level}
+    if note:
+        cap["note"] = note
+    return cap
+
+
 @app.command()
 def describe(
     agent: Annotated[str, typer.Argument(help="Agent slug.")],
     summary: Annotated[str | None, typer.Option(help="New summary.")] = None,
     tags: Annotated[str | None, typer.Option(help="Comma-separated tags.")] = None,
+    capability: Annotated[
+        list[str] | None,
+        typer.Option(
+            help="name=level[:note], repeatable, e.g. run_tests=gated. Replaces the "
+            "agent's whole capability list, as covey_describe does."
+        ),
+    ] = None,
     as_json: JsonOpt = False,
 ) -> None:
     """Edit an agent's card by hand."""
@@ -233,8 +262,13 @@ def describe(
         body["summary"] = summary
     if tags is not None:
         body["tags"] = [t.strip() for t in tags.split(",") if t.strip()]
+    if capability:
+        body["capabilities"] = [parse_capability(as_json, c) for c in capability]
     if not body:
-        raise fail(as_json, "Nothing to change. Pass --summary and/or --tags.")
+        raise fail(
+            as_json,
+            "Nothing to change. Pass --summary, --tags and/or --capability.",
+        )
     payload = call(as_json, "PUT", f"/v1/agents/{agent}/card", json=body)
     out(as_json, payload, f"Updated the card for {agent}.")
 
