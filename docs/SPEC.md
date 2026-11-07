@@ -284,14 +284,14 @@ A slug can be taken over by a new registration only when its current holder is n
 
 **The CLI is for setup and scripting; the TUI (`covey top`) is the thing people screenshot.** Both talk to the daemon over the HTTP API on the unix socket with the human token, so they work even if the daemon was started by a shim from some other terminal.
 
-**CLI surface, v1** (Typer; every command has `--json`):
+**CLI surface, v1** (Typer; every command except `covey top` (a TUI) and `covey mcp` (a stdio server) has `--json`):
 
 | Command | What it does |
 | --- | --- |
 | `covey init` | Detects Claude Code, writes the MCP server entry and the four hooks into settings, prints what it did. The daemon starts with the first session (or `covey up`). Idempotent. The whole onboarding is this one command |
 | `covey up` / `covey down` / `covey status` | Daemon lifecycle; `up` is implicit when a shim connects |
 | `covey ps` | Table of agents: slug, kind, liveness, workdir, capabilities, last seen |
-| `covey agent add <slug> --workdir <dir> [--wakeable] [--kind claude-code]` | Pre-register an agent that has no live session yet |
+| `covey agent add <slug> --workdir <dir> [--wakeable] [--kind claude-code] [--capabilities name:level,...]` | Pre-register an agent that has no live session yet |
 | `covey describe <slug> --summary ... --tags ... --capability name=level[:note]` | Edit a card by hand |
 | `covey find "<need>"` | Run discovery from the shell, prints ranked cards with the `why` |
 | `covey ask <slug> "<task>" [--cap explain] [--wait]` | Create a request as the human; the quickest way to test a new agent |
@@ -364,7 +364,7 @@ covey/
       registry.py         # cards, liveness, ranking
       router.py           # requests, threads, hops, statuses, deadlines
       grants.py           # levels, scopes, approval queue
-      waker.py            # hooks inbox, webhook, poll, headless spawn + budgets
+      waker.py            # headless spawn + budgets (webhook is v1.1; poll is the agent pulling, so nothing to wake)
       store.py            # SQLite schema, migrations, audit
     mcp/                  # stdio shim: tools, resources, identity attach
     hooks/                # session-start, stop, post-tool, session-end handlers
@@ -396,29 +396,29 @@ BUILD PLAN (start Mon 2026-11-10; you + Claude Code full time)
   Trust and approvals ........... Nov 19 - Nov 24
   Python SDK + tests ............ Nov 21 - Nov 26
   Docs + hero GIF ............... Nov 24 - Nov 28
-  Private beta (10-20 devs) ..... Nov 28 - Dec 7
-  HN + X launch ................. Tue Dec 8, 2026   (slip date: Jan 12, 2027)
+  Self-dogfood week ............. Nov 28 - Dec 7
+  HN + X launch ................. Tue Dec 8, 2026   (go/no-go Dec 5; slip date: Jan 12, 2027)
   v1.1 cross-node peering ....... Dec 9 - Dec 18
 ```
 
-Core first because everything else is a client of it; the shim and hooks start on day three because their reliability is the main risk and needs days of real use, not hours; trust lands before the TUI is finished so the approval card is designed against real approval events; one week of private beta; and HN launch is Tuesday Dec 8, 2026, two weeks before the December attention trough. If the hook experiments in week one go badly, slip the launch to Jan 12, 2027 rather than launching into the holidays.
+Core first because everything else is a client of it; the shim and hooks start on day three because their reliability is the main risk and needs days of real use, not hours; trust lands before the TUI is finished so the approval card is designed against real approval events; one week of self-dogfooding on the maintainer's own repos; and HN launch is Tuesday Dec 8, 2026, two weeks before the December attention trough. If the walk-away run loses a request and the fix is not in by Dec 5, slip the launch to Jan 12, 2027 rather than launching into the holidays.
 
 **Definition of done per workstream:**
 
 1. Core daemon: `curl` can register two agents, create a request, long-poll it, and reply; `covey log` shows the thread; 90% of router and grants logic covered by unit tests.
 2. MCP shim, hooks, spawner: a real Claude Code session in one repo can `covey_ask` a second session in another repo and get an answer via the Stop hook; a `wakeable` agent with no session is served by a spawned worker; spawn budget enforced.
-3. CLI + TUI: every command in the table works with `--json`; `covey top` renders the hero demo state legibly in 100×30.
+3. CLI + TUI: every command in the table, except `top` and `mcp`, works with `--json`; `covey top` renders the hero demo state legibly in 100×30.
 4. Trust and approvals: gated request raises a prompt in TUI, CLI and desktop notification; `once`, `session`, `always`, `deny` all behave; forbidden capabilities are rejected with a reason.
 5. SDK + tests: `examples/python-agent` joins and answers requests in under 40 lines; integration suite runs in CI on Linux and macOS.
 6. Docs + hero GIF: a stranger can go from nothing to the demo in five minutes following the quickstart; the GIF is recorded with `vhs` from a script in `examples/two-repos` so it can be re-recorded after every UI change.
 
 ## Launch plan
 
-**The launch is one GIF, one sentence, and a README that answers the three questions every HN commenter will ask in the first ten minutes: how does it wake an idle session, why not A2A, and what can go wrong.** Since you said distribution is not your edge, the plan leans on the artifact doing the talking and on a private beta producing the first wave of honest voices.
+**The launch is one GIF, one sentence, and a README that answers the three questions every HN commenter will ask in the first ten minutes: how does it wake an idle session, why not A2A, and what can go wrong.** Since you said distribution is not your edge, the plan leans on the artifact doing the talking and on the maintainer's own week of daily use producing the first honest notes.
 
 **README structure, top to bottom:** the one-liner ("Covey is a local agent mesh: discovery, delegation and permissions for the agents already running on your machine"), the hero GIF, a three-line install (`uv tool install covey-mesh && covey init`, open two Claude Code sessions, ask one to ask the other), a "How it works" section with the delivery diagram, "Covey vs A2A vs OpenClaw sub-agents" as a short honest table, the trust model in five sentences, the non-goals, and a "Status" line that says exactly what works and what does not. No badges wall, no emoji headers.
 
-**Private beta (Nov 28 to Dec 7).** Ten to twenty developers who run several Claude Code sessions daily: people from the Claude Code Discord, r/ClaudeAI, OpenClaw's community, and anyone who has starred `claude-mem` or `superpowers`. Ask each for one thing: record their own 30-second GIF of Covey doing something in their setup. Three or four of those in a "Seen in the wild" section on launch day is worth more than any copy you write.
+**Self-dogfood week (Nov 28 to Dec 7).** Covey runs on the maintainer's own repos every day. There are no beta invites and no outside testers. The week's job is to find the everyday moments where it saves time, and to record a GIF or two of them.
 
 **Launch day, Tuesday Dec 8, 2026.** HN "Show HN" posted between 14:00 and 15:00 Belgrade time (08:00 to 09:00 US East). Title: *Show HN: Covey – a local mesh so your Claude Code sessions can ask each other for help*. The first comment is yours and is technical: how the Stop hook trick works, what the spawn budget is, what the prompt-injection mitigations are, and the explicit non-goals. Same morning: a thread on X with the GIF, a post in the Claude Code Discord, r/ClaudeAI, r/LocalLLaMA (the BYOK and no-server angle plays well there), and a short note to the OpenClaw community with the adapter recipe. Stay at the keyboard for twelve hours answering everything and merging small PRs fast; a repo that visibly responds within minutes on launch day is a repo people star.
 
@@ -436,7 +436,7 @@ Core first because everything else is a client of it; the shim and hooks start o
 
 **Things that make a repo look alive in week one:** a `CONTRIBUTING.md` with five "good first issues" pre-filed (a Cursor init flag, Windows named pipes, a webhook delivery test, a web UI over the SSE stream, a Go client for the HTTP API), a `ROADMAP.md` that is this document's scope section, GitHub Discussions on, and a changelog that moves every few days.
 
-**What to measure.** Stars are the goal you named, but the number that predicts whether they keep coming is how many people reach the hero moment. `covey init` should ask once whether anonymous usage pings are OK (default off, honest text), and if yes, send a single event when the first cross-agent request completes. That one number tells you if the onboarding works.
+**What to measure.** There is no telemetry, because an endpoint would be a hosted service. Read adoption from PyPI download stats, GitHub stars, issues and Discussions.
 
 ## Risks, open questions, decisions still yours
 
@@ -451,7 +451,7 @@ Core first because everything else is a client of it; the shim and hooks start o
 | Headless workers run with broad permissions and do something destructive | Low-medium | Workers inherit only the agent's declared allowed tools; `edit` and `shell` are gated; default spawn budget 20/day; never `--dangerously-skip-permissions` |
 | Windows users cannot use unix sockets | Certain | Named pipes in v1.1; v1 README says Linux and macOS |
 | "Agent mesh" sounds like enterprise middleware and bounces individual devs | Medium | Lead with the GIF and "your Claude Code sessions can ask each other for help"; the category word goes second |
-| It stays a cool demo and nobody uses it daily | The real one | The beta's job is to find the three everyday moments where it saves time (cross-repo questions, test-running, "ask the agent that owns the infra") and put those, not the architecture, in the README |
+| It stays a cool demo and nobody uses it daily | The real one | The self-dogfood week's job is to find the three everyday moments where it saves time (cross-repo questions, test-running, "ask the agent that owns the infra") and put those, not the architecture, in the README |
 
 **Open technical questions to answer in week one with experiments, not debate:**
 
@@ -481,11 +481,11 @@ Core first because everything else is a client of it; the shim and hooks start o
 - A trivial run with the MCP server takes about 8 s, which answers open question 3 (under 20 s). One real run against a scratch repo answered correctly in 5.8 s for $0.017.
 - Not yet observed: `--max-turns` being enforced, and workers on macOS.
 
-**Decisions still yours** (the plan assumes the first option in each):
+**Launch decisions** (settled 2026-11-07):
 
-- Name: Covey, or Starlings if you want the murmuration story more than the short word. Register the PyPI name and GitHub org the day you decide; both are free today and that changes.
-- Launch date: Dec 8, 2026 after a one-week beta, or Jan 12, 2027 with a longer holiday beta if the week-one hook experiments are shaky. The plan takes Dec 8 because Claude Code removes typing as the bottleneck; the slip date is the safety valve.
-- Telemetry: a single opt-in "first cross-agent request completed" ping, or none at all. Some of the HN audience will object even to opt-in; the number is valuable enough that the plan includes it, clearly worded and default off.
-- Whether `edit` on another agent's repo is `gated` by default or `forbidden` by default. The plan says gated, because the demo is better for it, but a stricter default is a defensible choice for a security-first README.
+- Name: Covey. The PyPI package is `covey-mesh` (the name `covey` is taken); the GitHub repo is `filip-a-9/covey`.
+- Launch date: Dec 8, 2026, with a go/no-go on Dec 5. It slips to Jan 12, 2027 only if the walk-away run loses a request and the fix is not in by then. The one-week beta became a self-dogfood week (Nov 28 to Dec 7) on the maintainer's own repos; there are no beta invites.
+- Telemetry: none. No ping, no endpoint, because an endpoint is a hosted service. Adoption is read from PyPI download stats, GitHub stars, issues and Discussions.
+- `edit` on another agent's repo: gated; a card can set forbidden.
 
 **What the first commit should be:** the card JSON Schema, the SQLite schema and the OpenAPI file, with no code. Getting those three right is most of the design; everything else is typing.

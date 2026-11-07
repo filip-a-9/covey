@@ -13,16 +13,22 @@ Covey itself needs no API key. The Claude Code sessions use their own.
 
 ## 1. Install
 
-Covey is not on PyPI yet, so install from a checkout or a git URL:
+```
+uv tool install 'covey-mesh[tui,notify]'
+```
+
+The package is `covey-mesh`; the command is `covey`.
+
+The extras are optional. `tui` gives you `covey top`, and `notify` gives you desktop notifications for approvals. Without `tui`, `covey top` says so and exits.
+
+### From source
+
+To run an unreleased checkout, or a repository URL:
 
 ```
 uv tool install --from '/path/to/covey[tui,notify]' covey-mesh
 uv tool install --from git+https://github.com/filip-a-9/covey covey-mesh
 ```
-
-When the package is published, this becomes `uv tool install covey-mesh` (the package is `covey-mesh`; the command is `covey`).
-
-The extras are optional. `tui` gives you `covey top`, and `notify` gives you desktop notifications for approvals. Without `tui`, `covey top` says so and exits.
 
 Do not use `uvx`. The hooks need a `covey` that stays installed, and `covey init` refuses to run from uvx's temporary environment.
 
@@ -143,7 +149,7 @@ covey log --json
 covey log --follow
 ```
 
-`covey log` prints a transcript of requests grouped by thread, with each request's audit events (approvals, wake posts, deliveries, worker spawns) beneath it. `covey log --follow` keeps printing new events as they happen. `covey log --json` also includes events that aren't about a request, such as agent and grant rows. Every command takes `--json`.
+`covey log` prints a transcript of requests grouped by thread, with each request's audit events (approvals, wake posts, deliveries, worker spawns) beneath it. `covey log --follow` keeps printing new events as they happen. `covey log --json` also includes events that aren't about a request, such as agent and grant rows. Every command except `covey top` (a TUI) and `covey mcp` (a stdio server) takes `--json`.
 
 ## 8. Stop
 
