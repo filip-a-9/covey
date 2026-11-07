@@ -227,6 +227,8 @@ These are speed bumps, not a security boundary, and the docs say so plainly.
 }
 ```
 
+A wakeable agent's card may also carry an optional `worker` block, `{"allowed_tools": [...], "max_turns": 10, "max_budget_usd": 1.0, "daily_spawns": 20}`. It controls the headless worker described in "Delivery". Only the human sets it, through `covey agent add`. It is not one of the fields `covey_describe` can change, so a prompt-injected agent cannot widen its own worker's tools.
+
 **Tables** (SQLite, WAL mode, one file at `~/.covey/covey.db`):
 
 | Table | Key columns | Notes |

@@ -85,6 +85,46 @@
       "description": "Whether the daemon may spawn a headless worker for this agent when no session is attached.",
       "type": "boolean"
     },
+    "worker": {
+      "description": "How a headless worker runs for this agent when it is wakeable and has no session. Set only by the human through `covey agent add`; an agent cannot change it. Omitted fields take the defaults shown.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "allowed_tools": {
+          "description": "Claude Code tools the worker may use, besides the covey tools the daemon always adds.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "maxItems": 100,
+          "uniqueItems": true,
+          "default": ["Read", "Grep", "Glob"]
+        },
+        "max_turns": {
+          "description": "Turn cap for one worker run.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 200,
+          "default": 10
+        },
+        "max_budget_usd": {
+          "description": "Spend cap in US dollars for one worker run.",
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 100,
+          "default": 1.0
+        },
+        "daily_spawns": {
+          "description": "Most workers started for this agent in any rolling 24 hours.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000,
+          "default": 20
+        }
+      }
+    },
     "liveness": {
       "enum": ["live", "wakeable", "gone"]
     },
