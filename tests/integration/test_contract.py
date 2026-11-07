@@ -245,3 +245,67 @@ def test_every_implemented_operation_matches_its_declared_response(daemon):
     assert not missing, f"operations never validated: {sorted(missing)}"
     tcp.close()
     uds.close()
+
+
+WAKE = "/run/user/1000/claude-code/messaging.sock"
+
+
+def test_wake_socket_is_accepted_on_register_heartbeat_and_session_but_validated(
+    daemon,
+):
+    tcp = httpx.Client(base_url=daemon.base_url, timeout=15)
+    join = bearer(daemon.join_token)
+    reg = {"slug": "wk", "kind": "python", "delivery": "poll"}
+    r = tcp.post("/v1/agents/register", json={**reg, "wake_socket": WAKE}, headers=join)
+    assert r.status_code == 200, r.text
+    me = bearer(r.json()["agent_token"])
+
+    hb = "/v1/agents/wk/heartbeat"
+    assert (
+        tcp.post(hb, headers=me).status_code == 200
+    )  # no body, as the shim sends today
+    assert tcp.post(hb, json={}, headers=me).status_code == 200
+    assert tcp.post(hb, json={"wake_socket": WAKE}, headers=me).status_code == 200
+    assert tcp.post(hb, json={"bogus": 1}, headers=me).status_code == 400
+    assert (
+        tcp.post(hb, json={"wake_socket": "/" + "a" * 200}, headers=me).status_code
+        == 400
+    )
+
+    sess = "/v1/agents/wk/session"
+    ok = {"session_id": "s1", "wake_socket": WAKE}
+    assert tcp.put(sess, json=ok, headers=me).status_code == 200
+    assert (
+        tcp.put(sess, json={"session_id": "s1", "bogus": 1}, headers=me).status_code
+        == 400
+    )
+    long = {"session_id": "s1", "wake_socket": "/" + "a" * 200}
+    assert tcp.put(sess, json=long, headers=me).status_code == 400
+
+    other = {**reg, "slug": "wk2"}
+    assert (
+        tcp.post(
+            "/v1/agents/register",
+            json={**other, "wake_socket": "/" + "a" * 200},
+            headers=join,
+        ).status_code
+        == 400
+    )
+    assert (
+        tcp.post(
+            "/v1/agents/register", json={**other, "bogus": 1}, headers=join
+        ).status_code
+        == 400
+    )
+
+
+def test_api_yaml_declares_wake_socket_on_the_three_bodies():
+    schemas = SPEC["components"]["schemas"]
+    for name in ("RegisterBody", "SessionBody", "HeartbeatBody"):
+        prop = schemas[name]["properties"]["wake_socket"]
+        assert prop["maxLength"] == 200
+        assert schemas[name]["additionalProperties"] is False
+    assert "wake_socket" not in schemas["HeartbeatBody"].get("required", [])
+    assert schemas["SessionBody"]["required"] == ["session_id"]
+    body = SPEC["paths"]["/v1/agents/{slug}/heartbeat"]["post"]["requestBody"]
+    assert body["required"] is False

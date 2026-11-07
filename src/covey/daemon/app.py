@@ -305,6 +305,7 @@ class RegisterBody(Body):
     webhook_url: str | None = None
     wakeable: bool | None = None  # omitted keeps the existing value on a takeover
     session_id: str | None = None
+    wake_socket: str | None = Field(default=None, max_length=200)
 
 
 class CreateAgentBody(Body):
@@ -328,6 +329,11 @@ class DescribeBody(Body):
 
 class SessionBody(Body):
     session_id: str = Field(min_length=1, max_length=200)
+    wake_socket: str | None = Field(default=None, max_length=200)
+
+
+class HeartbeatBody(Body):
+    wake_socket: str | None = Field(default=None, max_length=200)
 
 
 class SessionEndBody(Body):
@@ -476,6 +482,7 @@ def create_app(cfg: Config, ignore_pids: frozenset[int] = frozenset()) -> FastAP
         request: Request,
         slug: Annotated[str, Path(pattern=SLUG)],
         who: Annotated[Caller, Depends(require("join", "agent", "human"))],
+        body: HeartbeatBody | None = None,  # accepted, not used yet
     ) -> dict:
         daemon = app.state.daemon
         not_worker(who)

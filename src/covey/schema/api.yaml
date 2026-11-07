@@ -83,6 +83,12 @@ paths:
         - agentToken: []
       parameters:
         - $ref: "#/components/parameters/Slug"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/HeartbeatBody"
       responses:
         "200":
           description: Liveness updated
@@ -718,6 +724,10 @@ components:
           default: []
         instructions: { type: string, maxLength: 4000 }
         delivery: { enum: [hooks, webhook, poll, spawn] }
+        wake_socket:
+          type: string
+          maxLength: 200
+          description: Claude Code messaging socket path for idle wake; never the token.
         webhook_url: { type: string, format: uri }
         wakeable:
           type: boolean
@@ -778,6 +788,19 @@ components:
       required: [session_id]
       properties:
         session_id: { type: string, minLength: 1, maxLength: 200 }
+        wake_socket:
+          type: string
+          maxLength: 200
+          description: Claude Code messaging socket path for idle wake; never the token.
+
+    HeartbeatBody:
+      type: object
+      additionalProperties: false
+      properties:
+        wake_socket:
+          type: string
+          maxLength: 200
+          description: Claude Code messaging socket path for idle wake; never the token.
 
     SessionEndBody:
       type: object
