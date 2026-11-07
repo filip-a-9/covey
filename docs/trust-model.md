@@ -102,13 +102,14 @@ Without a notification you can still miss an approval. The asking session is tol
 Every request, status change, grant, approval, agent registration and worker spawn is a row in the SQLite `audit` table (`~/.covey/covey.db`) with a timestamp and the acting identity. The table is append-only: database triggers abort any update or delete.
 
 ```
-covey log                      # transcript of requests, by thread
+covey log                      # requests by thread, with their audit events
+covey log --follow             # and keep printing new ones
 covey log --thread <id>
 covey log --agent <slug> --since <ISO-8601 time>
 covey log --json               # requests and audit events
 ```
 
-The text output shows requests and their results. The audit events (`grant.created`, `approval.answered`, `request.grant_revoked`, `worker.spawned`, `worker.finished` and so on) are in the `--json` output. An agent calling `covey_log` sees only threads it took part in.
+The text output shows each request with its audit events (`approval.answered`, `request.grant_revoked`, `worker.spawned`, `worker.finished` and so on) and its result. Events that aren't about a request, such as `grant.created`, are only in the `--json` output. An agent calling `covey_log` sees only threads it took part in.
 
 ## Known limits
 

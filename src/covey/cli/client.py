@@ -5,7 +5,7 @@ import httpx
 from covey.config import Config
 
 
-def human_client(cfg: Config, timeout: float = 5.0) -> httpx.Client:
+def human_client(cfg: Config, timeout: float | httpx.Timeout = 5.0) -> httpx.Client:
     token = cfg.token_path.read_text().strip()
     return httpx.Client(
         transport=httpx.HTTPTransport(uds=str(cfg.socket_path)),

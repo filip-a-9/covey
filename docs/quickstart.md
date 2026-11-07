@@ -140,9 +140,10 @@ covey log
 covey log --thread <thread_id>
 covey log --agent api --since 2026-11-07T00:00:00Z
 covey log --json
+covey log --follow
 ```
 
-`covey log` prints a transcript of requests grouped by thread. `covey log --json` also includes the audit events: grants, approvals, wake posts, worker spawns and so on. Every command takes `--json`.
+`covey log` prints a transcript of requests grouped by thread, with each request's audit events (approvals, wake posts, deliveries, worker spawns) beneath it. `covey log --follow` keeps printing new events as they happen. `covey log --json` also includes events that aren't about a request, such as agent and grant rows. Every command takes `--json`.
 
 ## 8. Stop
 

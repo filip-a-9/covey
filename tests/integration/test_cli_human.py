@@ -393,3 +393,109 @@ def test_doctor_reports_a_refused_human_token_as_a_failed_check(env, refused):
     checks = {c["name"]: c for c in data["checks"]}
     assert checks["socket"]["ok"]  # coveyd is up; it is the token that is refused
     assert not checks["human token"]["ok"]
+
+
+class Follow:
+    """`covey log --follow` as a subprocess; lines are collected by a reader thread."""
+
+    def __init__(self, *args):
+        import queue
+        import subprocess
+        import sys
+
+        self.lines: queue.Queue[str] = queue.Queue()
+        self.proc = subprocess.Popen(
+            [
+                sys.executable,
+                "-c",
+                "from covey.cli import app; app()",
+                "log",
+                "--follow",
+                *args,
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+        threading.Thread(target=self._read, daemon=True).start()
+
+    def _read(self):
+        for line in self.proc.stdout:
+            self.lines.put(line.rstrip("\n"))
+
+    def wait_for(self, test, timeout=10.0):
+        import queue
+
+        seen = []
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            try:
+                line = self.lines.get(timeout=0.1)
+            except queue.Empty:
+                continue
+            seen.append(line)
+            if test(line):
+                return line
+        raise AssertionError(f"no matching line within {timeout}s; got {seen!r}")
+
+    def close(self):
+        self.proc.terminate()
+        self.proc.wait(5)
+
+
+@pytest.fixture
+def follow(env):
+    started = []
+
+    def start(*args):
+        started.append(Follow(*args))
+        return started[-1]
+
+    yield start
+    for f in started:
+        f.close()
+
+
+def ask_and_reply(tcp, web, api, task, result):
+    r = tcp.post(
+        "/v1/requests",
+        json={"to": "api", "capability": "explain", "task": task},
+        headers=web,
+    )
+    assert r.status_code == 201, r.text
+    rid = r.json()["request"]["request_id"]
+    return lambda: tcp.post(
+        f"/v1/requests/{rid}/reply",
+        json={"result": result, "status": "done"},
+        headers=api,
+    )
+
+
+def test_log_follow_prints_new_requests_and_replies_as_they_happen(
+    follow, tcp, web, api
+):
+    f = follow()
+    f.wait_for(lambda line: "No requests" in line)
+    reply = ask_and_reply(tcp, web, api, "explain the cache", "it is LRU")
+    f.wait_for(lambda line: "web -> api" in line and "explain the cache" in line)
+    reply()
+    f.wait_for(lambda line: line.strip() == "it is LRU")
+
+
+def test_log_follow_json_prints_one_event_object_per_line(follow, tcp, web, api):
+    f = follow("--json")
+    f.wait_for(lambda line: line.startswith("{"))  # the initial transcript
+    ask_and_reply(tcp, web, api, "explain the cache", "it is LRU")
+    line = f.wait_for(lambda line: '"request.created"' in line)
+    assert json.loads(line)["event"] == "request.created"
+
+
+def test_log_follow_exits_cleanly_on_ctrl_c(follow):
+    import signal
+
+    f = follow()
+    f.wait_for(lambda line: "No requests" in line)
+    time.sleep(0.3)  # let it reach the event stream
+    f.proc.send_signal(signal.SIGINT)
+    assert f.proc.wait(5) == 0
+    assert not any("Traceback" in line for line in list(f.lines.queue))
