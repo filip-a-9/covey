@@ -19,6 +19,10 @@ env:
   # No desktop notification attempts on runners. tests/conftest.py sets this too, but
   # `covey up` subprocesses and the CLI steps should agree.
   COVEY_NOTIFY: log
+  # uv's standalone Python on every OS. The macOS runner's python.org framework build re-launches
+  # itself as Python.app, which replaces argv[0], so a test's `claude` symlink to Python never
+  # looks like `claude` to ps.
+  UV_PYTHON_PREFERENCE: only-managed
 
 jobs:
   check:
