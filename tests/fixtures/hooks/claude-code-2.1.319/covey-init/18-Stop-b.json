@@ -1,0 +1,24 @@
+{
+  "event": "Stop",
+  "agent": "b",
+  "command": "covey hook",
+  "exit": 0,
+  "duration_ms": 381,
+  "stdin": {
+    "session_id": "31e5e903-1cb2-43c9-a052-fbc85af4cda9",
+    "transcript_path": "/home/USER/.claude/projects/-lab-b/31e5e903-1cb2-43c9-a052-fbc85af4cda9.jsonl",
+    "cwd": "/lab/b",
+    "scratchpad_dir": "/tmp/claude-UID/-lab-b/31e5e903-1cb2-43c9-a052-fbc85af4cda9/scratchpad",
+    "prompt_id": "d379dadf-02b4-4403-a385-2d62e8225872",
+    "permission_mode": "default",
+    "effort": {
+      "level": "medium"
+    },
+    "hook_event_name": "Stop",
+    "stop_hook_active": false,
+    "last_assistant_message": "Done. The command printed `slept`.\n\nA sender named `human` also asked through covey how many lines README.md has. I replied that it has 1 line (`# repo b`).",
+    "background_tasks": [],
+    "session_crons": []
+  },
+  "stdout": null
+}

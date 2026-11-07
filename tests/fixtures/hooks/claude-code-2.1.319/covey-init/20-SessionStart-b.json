@@ -1,0 +1,21 @@
+{
+  "event": "SessionStart",
+  "agent": "b",
+  "command": "covey hook",
+  "exit": 0,
+  "duration_ms": 353,
+  "stdin": {
+    "session_id": "3c7b3cf0-f92b-486c-9683-15aa0f8749ac",
+    "transcript_path": "/home/USER/.claude/projects/-lab-b/3c7b3cf0-f92b-486c-9683-15aa0f8749ac.jsonl",
+    "cwd": "/lab/b",
+    "scratchpad_dir": "/tmp/claude-UID/-lab-b/3c7b3cf0-f92b-486c-9683-15aa0f8749ac/scratchpad",
+    "hook_event_name": "SessionStart",
+    "source": "clear"
+  },
+  "stdout": {
+    "hookSpecificOutput": {
+      "hookEventName": "SessionStart",
+      "additionalContext": "You are agent `b` in the covey. Call `covey_describe` once you know what this repo does. Other agents may ask you for help."
+    }
+  }
+}

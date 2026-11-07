@@ -1,0 +1,32 @@
+{
+  "event": "Stop",
+  "agent": "b",
+  "command": "covey hook",
+  "exit": 0,
+  "duration_ms": 394,
+  "stdin": {
+    "session_id": "31e5e903-1cb2-43c9-a052-fbc85af4cda9",
+    "transcript_path": "/home/USER/.claude/projects/-lab-b/31e5e903-1cb2-43c9-a052-fbc85af4cda9.jsonl",
+    "cwd": "/lab/b",
+    "scratchpad_dir": "/tmp/claude-UID/-lab-b/31e5e903-1cb2-43c9-a052-fbc85af4cda9/scratchpad",
+    "prompt_id": "dd41843a-b83b-47d7-b6d3-7bdc9da4c2ef",
+    "permission_mode": "default",
+    "effort": {
+      "level": "medium"
+    },
+    "hook_event_name": "Stop",
+    "stop_hook_active": false,
+    "last_assistant_message": "The command is running in the background because this environment blocks a foreground `sleep`. I'll say done when it finishes.",
+    "background_tasks": [
+      {
+        "id": "b6jt4xdxd",
+        "type": "shell",
+        "status": "running",
+        "description": "Wait 25 seconds then print a message",
+        "command": "sleep 25 && echo slept"
+      }
+    ],
+    "session_crons": []
+  },
+  "stdout": null
+}
