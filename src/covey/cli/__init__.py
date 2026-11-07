@@ -226,3 +226,6 @@ def mcp() -> None:
     from covey.mcp.server import main  # lazy: the rest of the CLI skips the MCP SDK
 
     main()
+
+
+from covey.cli import commands  # noqa: F401  (registers the commands on `app`)
