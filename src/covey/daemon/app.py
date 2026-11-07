@@ -526,18 +526,18 @@ class SessionEndBody(Body):
 
 class AskBody(Body):
     to: str
-    task: str = Field(min_length=1)
+    task: str = Field(min_length=1, max_length=65536)
     capability: str
-    context: str | None = None
+    context: str | None = Field(default=None, max_length=65536)
     thread_id: str | None = Field(default=None, pattern=ULID)
     parent_id: str | None = Field(default=None, pattern=ULID)
     timeout_s: int | None = Field(default=None, ge=1, le=86400)
 
 
 class ReplyBody(Body):
-    result: str
+    result: str = Field(max_length=65536)
     status: str
-    artifacts: list[dict[str, Any]] = []
+    artifacts: list[dict[str, Any]] = Field(default=[], max_length=32)
 
 
 class GrantBody(Body):

@@ -342,7 +342,9 @@ paths:
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/NotFound" }
+        "413": { $ref: "#/components/responses/TooLarge" }
         "422": { $ref: "#/components/responses/Unprocessable" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
 
   /v1/requests/{request_id}:
     get:
@@ -634,6 +636,18 @@ components:
       content:
         application/json:
           schema: { $ref: "#/components/schemas/Error" }
+    TooLarge:
+      description: |
+        The body is over 1 MiB. Any endpoint can answer this, before authentication.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    TooManyRequests:
+      description: |
+        The requester already has 10 requests waiting for the human (`too_many_pending_approvals`).
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
     Unprocessable:
       description: Well-formed but refused by a rule (for example the hops limit)
       content:
@@ -890,9 +904,9 @@ components:
         to:
           type: string
           description: Target slug, or `human`.
-        task: { type: string, minLength: 1 }
+        task: { type: string, minLength: 1, maxLength: 65536 }
         capability: { type: string }
-        context: { type: string }
+        context: { type: string, maxLength: 65536 }
         thread_id: { $ref: "#/components/schemas/Ulid" }
         parent_id:
           $ref: "#/components/schemas/Ulid"
@@ -964,10 +978,12 @@ components:
       properties:
         result:
           type: string
+          maxLength: 65536
           description: Markdown, optionally with a small JSON block.
         status: { enum: [done, failed, needs_input] }
         artifacts:
           type: array
+          maxItems: 32
           items: { $ref: "#/components/schemas/Artifact" }
 
     Grant:
