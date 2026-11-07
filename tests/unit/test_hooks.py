@@ -5,8 +5,10 @@ from pathlib import Path
 
 import pytest
 
+from covey.config import Config
 from covey.hooks import post_tool, session_end, session_start, stop
 from covey.hooks.client import HookContext
+from covey.mcp.identity import read_wake_file
 
 RECORDED = Path(__file__).parents[1] / "fixtures" / "hooks" / "claude-code-2.1.319"
 
@@ -60,6 +62,55 @@ def test_session_start_before_the_shim_still_nudges_without_calling_the_daemon()
     out = session_start.run(
         payload("fresh", "01-SessionStart.json"), HookContext("api", None)
     )
+    assert "agent `api`" in out["hookSpecificOutput"]["additionalContext"]
+
+
+SOCK_ENV = {"CLAUDE_CODE_MESSAGING_SOCKET": "/run/c.sock", "CLAUDE_PID": "4242"}
+
+
+def wake_ctx(tmp_path, client=None, env=SOCK_ENV):
+    cfg = Config(home=tmp_path, port=1)
+    return cfg, HookContext("api", client, cfg=cfg, env=env)
+
+
+def test_session_start_leaves_the_socket_for_the_shim_even_before_a_session_exists(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr("covey.hooks.session_start._start_time", lambda pid: "777")
+    cfg, ctx = wake_ctx(tmp_path)
+    out = session_start.run(payload("fresh", "01-SessionStart.json"), ctx)
+    assert "agent `api`" in out["hookSpecificOutput"]["additionalContext"]
+    assert read_wake_file(cfg, {"pid": 4242, "start_time": "777"}) == "/run/c.sock"
+
+
+def test_session_start_sends_the_socket_with_the_session_id(tmp_path, monkeypatch):
+    monkeypatch.setattr("covey.hooks.session_start._start_time", lambda pid: "777")
+    fake = FakeDaemon()
+    _, ctx = wake_ctx(tmp_path, fake)
+    session_start.run(payload("fresh", "01-SessionStart.json"), ctx)
+    assert fake.calls[0][3] == {
+        "session_id": "9624e4dc-cfb2-4bd3-8476-3b02dc83fb2b",
+        "wake_socket": "/run/c.sock",
+    }
+
+
+def test_session_start_without_the_socket_env_sends_no_wake_socket(tmp_path):
+    fake = FakeDaemon()
+    _, ctx = wake_ctx(tmp_path, fake, env={"CLAUDE_PID": "4242"})
+    session_start.run(payload("fresh", "01-SessionStart.json"), ctx)
+    assert "wake_socket" not in fake.calls[0][3]
+    assert not (tmp_path / "sessions").exists()
+
+
+def test_a_wake_file_failure_does_not_stop_the_put(tmp_path, monkeypatch):
+    def boom(*a):
+        raise OSError("disk full")
+
+    monkeypatch.setattr("covey.hooks.session_start.write_wake_file", boom)
+    fake = FakeDaemon()
+    _, ctx = wake_ctx(tmp_path, fake)
+    out = session_start.run(payload("fresh", "01-SessionStart.json"), ctx)
+    assert fake.calls[0][3]["wake_socket"] == "/run/c.sock"
     assert "agent `api`" in out["hookSpecificOutput"]["additionalContext"]
 
 

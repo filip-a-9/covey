@@ -17,6 +17,14 @@ def no_real_claude(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def no_real_session_socket(monkeypatch):
+    """The suite may run inside a Claude Code session. No test may learn that session's
+    messaging socket, or a test daemon would post wake messages into it."""
+    monkeypatch.delenv("CLAUDE_CODE_MESSAGING_SOCKET", raising=False)
+    monkeypatch.delenv("CLAUDE_CODE_MESSAGING_TOKEN", raising=False)
+
+
+@pytest.fixture(autouse=True)
 def no_real_toast(monkeypatch):
     """No test may pop a desktop notification, from this process or a daemon subprocess."""
     monkeypatch.setenv("COVEY_NOTIFY", "log")

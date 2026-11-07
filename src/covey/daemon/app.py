@@ -27,7 +27,7 @@ import threading
 import time
 from collections.abc import AsyncIterator, Callable, Iterator
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any, Literal
 
 import uvicorn
@@ -37,10 +37,20 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from covey import API_VERSION
+from covey import API_VERSION, frames
 from covey import config as config_module
 from covey.config import Config, ConfigError
-from covey.daemon import events, grants, notify, peer, registry, router, store, waker
+from covey.daemon import (
+    events,
+    grants,
+    notify,
+    peer,
+    registry,
+    router,
+    store,
+    wake,
+    waker,
+)
 from covey.daemon.errors import CoveyError
 
 Transport = Literal["unix", "tcp"]
@@ -77,6 +87,10 @@ class Daemon:
         # agent_id -> (pid, start_time) of the process tree its session lives in. In memory
         # only: it refills within one heartbeat after a restart.
         self.session_pids: dict[str, peer.Root] = {}
+        # agent_id -> path of its Claude Code messaging socket (idle wake). In memory only,
+        # relearned on the next heartbeat. Never the socket's token.
+        self.wake_sockets: dict[str, str] = {}
+        self.wake_tasks: set[asyncio.Task] = set()
         # Never a session root and never matched. Empty in production; a test daemon running
         # inside pytest passes pytest's own ancestry, which may include a real `claude`.
         self.ignore_pids = ignore_pids
@@ -143,6 +157,50 @@ class Daemon:
                 self.session_pids.pop(agent_id, None)
         else:
             self.session_pids[agent_id] = root
+
+    def note_wake_socket(self, agent_id: str, path: str | None) -> None:
+        if path:
+            self.wake_sockets[agent_id] = path
+
+    def wake(self, request: dict[str, Any]) -> None:
+        """Idle wake: if this queued request's target is a live session with a wake socket,
+        stamp it and post one message in the background. Event-driven only (never from the
+        sweep), so a released request is not posted again."""
+        cfg = self.cfg
+        agent_id = request["to_agent"]
+        path = self.wake_sockets.get(agent_id)
+        if not (cfg.idle_wake and path and request["status"] == "queued"):
+            return
+        if router._agent_by_id(self.conn, agent_id)["liveness"] != "live":
+            return
+        rid = request["request_id"]
+        if not router.wake_claim(self.conn, rid):
+            return
+        actor = store.daemon_actor(self.node.node_id)
+        store.audit(self.conn, actor, "request.wake_posted", rid, {"agent": agent_id})
+        text = frames.wake_message(
+            request["from_agent"].partition("@")[0], request["capability"], rid
+        )
+        task = asyncio.get_running_loop().create_task(
+            self._post_wake(agent_id, path, rid, text)
+        )
+        self.wake_tasks.add(task)
+        task.add_done_callback(self.wake_tasks.discard)
+
+    async def _post_wake(self, agent_id: str, path: str, rid: str, text: str) -> None:
+        try:
+            await wake.post(path, text)
+        except OSError as exc:
+            logger.info("wake post to %s failed: %s", agent_id, exc)
+            if self.wake_sockets.get(agent_id) == path:
+                del self.wake_sockets[agent_id]
+            router.release_wake_claim(self.conn, rid)
+            await self.notify()
+
+    async def shutdown_wakes(self) -> None:
+        for task in list(self.wake_tasks):
+            task.cancel()
+        await asyncio.gather(*self.wake_tasks, return_exceptions=True)
 
     def agent_roots(self) -> dict[str, peer.Root]:
         return {**self.session_pids, **self.waker.pids}
@@ -460,9 +518,12 @@ def create_app(cfg: Config, ignore_pids: frozenset[int] = frozenset()) -> FastAP
     ) -> dict:
         daemon = app.state.daemon
         card, token = registry.register(
-            daemon.conn, daemon.node.node_id, body.model_dump(exclude_none=True)
+            daemon.conn,
+            daemon.node.node_id,
+            body.model_dump(exclude_none=True, exclude={"wake_socket"}),
         )
         daemon.note_session(card["agent_id"], request, replace=True)
+        daemon.note_wake_socket(card["agent_id"], body.wake_socket)
         await daemon.notify()
         return versioned(card=card, agent_token=token)
 
@@ -482,14 +543,16 @@ def create_app(cfg: Config, ignore_pids: frozenset[int] = frozenset()) -> FastAP
         request: Request,
         slug: Annotated[str, Path(pattern=SLUG)],
         who: Annotated[Caller, Depends(require("join", "agent", "human"))],
-        body: HeartbeatBody | None = None,  # accepted, not used yet
+        body: HeartbeatBody | None = None,
     ) -> dict:
         daemon = app.state.daemon
         not_worker(who)
         own_slug(who, slug)
         result = registry.heartbeat(daemon.conn, slug)
         if who.kind != "human":
-            daemon.note_session(f"{slug}@{daemon.node.node_id}", request)
+            agent_id = f"{slug}@{daemon.node.node_id}"
+            daemon.note_session(agent_id, request)
+            daemon.note_wake_socket(agent_id, body.wake_socket if body else None)
         await daemon.notify()
         return versioned(**result)
 
@@ -580,6 +643,7 @@ def create_app(cfg: Config, ignore_pids: frozenset[int] = frozenset()) -> FastAP
         not_worker(who)
         own_slug(who, slug)
         result = registry.set_session(daemon.conn, slug, body.session_id)
+        daemon.note_wake_socket(who.agent_id, body.wake_socket)
         await daemon.notify()
         return versioned(**result)
 
@@ -594,6 +658,7 @@ def create_app(cfg: Config, ignore_pids: frozenset[int] = frozenset()) -> FastAP
         own_slug(who, slug)
         result = registry.end_session(daemon.conn, slug, body.reason)
         daemon.session_pids.pop(who.agent_id, None)
+        daemon.wake_sockets.pop(who.agent_id, None)
         await daemon.notify()
         return versioned(**result)
 
@@ -616,6 +681,7 @@ def create_app(cfg: Config, ignore_pids: frozenset[int] = frozenset()) -> FastAP
             timeout_s=body.timeout_s,
             max_hops=daemon.cfg.max_hops,
         )
+        daemon.wake(req)
         await daemon.notify()
         daemon.waker.kick()
         if req["status"] == "awaiting_grant" and daemon.human_watchers == 0:
@@ -734,6 +800,7 @@ def create_app(cfg: Config, ignore_pids: frozenset[int] = frozenset()) -> FastAP
         req, grant = router.answer_approval(
             daemon.conn, request_id, body.scope, who.agent_id
         )
+        daemon.wake(req)
         await daemon.notify()
         daemon.waker.kick()
         return versioned(request=req, grant=grant)
@@ -832,6 +899,7 @@ def _bind_tcp(cfg: Config) -> socket.socket:
 def drop_session_pids(daemon: Daemon, agent_ids: list[str]) -> None:
     for agent_id in agent_ids:
         daemon.session_pids.pop(agent_id, None)
+        daemon.wake_sockets.pop(agent_id, None)
 
 
 async def _sweeper(daemon: Daemon) -> None:
@@ -845,6 +913,13 @@ async def _sweeper(daemon: Daemon) -> None:
                 daemon, registry.sweep(daemon.conn, t, daemon.cfg.liveness_timeout_s)
             ),
             lambda t=now: router.expire_due(daemon.conn, t),
+            lambda: router.release_wake_claims(
+                daemon.conn,
+                utc_text(
+                    datetime.now(UTC)
+                    - timedelta(seconds=daemon.cfg.idle_wake_fallback_s)
+                ),
+            ),
         )
         steps = (
             *steps,
@@ -940,6 +1015,7 @@ async def serve(
                 logger.error("server task ended with %r", result)
         if app is not None:
             await app.state.daemon.waker.shutdown()
+            await app.state.daemon.shutdown_wakes()
             app.state.daemon.close()
         for sock in (unix_sock, tcp_sock):
             if sock is not None:

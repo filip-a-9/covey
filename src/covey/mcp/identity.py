@@ -89,3 +89,63 @@ def read_session(cfg: Config, env: Mapping[str, str]) -> SessionInfo | None:
         return {"slug": data["slug"], "agent_token": data["agent_token"]}
     except (KeyError, ValueError, OSError):
         return None
+
+
+def wake_file(cfg: Config, claude_pid: int) -> Path:
+    return cfg.home / "sessions" / f"claude-{claude_pid}.wake.json"
+
+
+def write_wake_file(
+    cfg: Config, claude_pid: int, start_time: str | None, socket_path: str
+) -> Path:
+    """Where the SessionStart hook leaves Claude Code's messaging socket path for the shim.
+    No token: the socket does not check one."""
+    sessions = cfg.home / "sessions"
+    sessions.mkdir(mode=0o700, parents=True, exist_ok=True)
+    sessions.chmod(0o700)
+    path = wake_file(cfg, claude_pid)
+    tmp = path.with_suffix(
+        ".tmp"
+    )  # claude-<pid>.wake.tmp, never the session file's tmp
+    tmp.unlink(missing_ok=True)
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "w") as f:
+        json.dump(
+            {
+                "socket": socket_path,
+                "claude_pid": claude_pid,
+                "claude_start_time": start_time,
+            },
+            f,
+        )
+    os.replace(tmp, path)
+    return path
+
+
+def read_wake_file(cfg: Config, claude: ClaudeProcess) -> str | None:
+    """The socket path for this `claude` process, or None on any problem or a start-time
+    mismatch (a recycled pid)."""
+    try:
+        data = json.loads(wake_file(cfg, claude["pid"]).read_text())
+        if data["claude_start_time"] != claude["start_time"]:
+            return None
+        socket = data["socket"]
+        # Over the API's 200-character limit, register would fail with 400: skip idle wake.
+        ok = isinstance(socket, str) and 0 < len(socket) <= 200
+        return socket if ok else None
+    except (KeyError, ValueError, OSError, TypeError):
+        return None
+
+
+def forget_wake_file(cfg: Config, claude: ClaudeProcess) -> None:
+    """Remove the wake file if it belongs to this `claude` process."""
+    try:
+        path = wake_file(cfg, claude["pid"])
+        data = json.loads(path.read_text())
+        if (
+            data["claude_pid"] == claude["pid"]
+            and data["claude_start_time"] == claude["start_time"]
+        ):
+            path.unlink()
+    except (KeyError, ValueError, OSError, TypeError):
+        pass

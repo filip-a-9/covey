@@ -208,3 +208,14 @@ def test_same_millisecond_requests_are_served_in_arrival_order(
                 (rid, rid, web, docs),
             )
     assert [c.request["request_id"] for c in claim(conn, wcfg)] == [first]
+
+
+def test_a_wake_claimed_request_gets_no_worker(conn, node, wcfg, web, tmp_path):
+    """Idle wake already posted it to a session; a flip to wakeable must not also spawn."""
+    pre_register(conn, node, "docs", tmp_path)
+    rid = ask(conn, web, "docs")
+    assert router.wake_claim(conn, rid)
+    assert claim(conn, wcfg) == []
+    assert status(conn, rid) == ("queued", None)
+    router.release_wake_claims(conn, "9999-01-01T00:00:00.000Z")
+    assert [c.request["request_id"] for c in claim(conn, wcfg)] == [rid]

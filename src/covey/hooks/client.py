@@ -1,6 +1,7 @@
 """Hooks' door to the daemon: sync httpx over the unix socket with the agent token."""
 
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import dataclass, field
 from typing import Any
 
 import httpx
@@ -49,3 +50,5 @@ class HookContext:
 
     slug: str
     client: Any  # HookClient, or any object with the same `call`
+    cfg: Config | None = None
+    env: Mapping[str, str] = field(default_factory=dict)  # the hook's own environment

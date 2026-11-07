@@ -13,6 +13,7 @@ import httpx
 from mcp import Client
 
 from covey.config import Config
+from covey.mcp.identity import write_wake_file
 from covey.mcp.server import Shim, build_server
 from tests.integration.conftest import free_port, run_daemon
 
@@ -407,3 +408,83 @@ async def test_covey_mcp_worker_without_its_token_says_what_is_missing(
     assert err and "COVEY_WORKER_TOKEN" in text
     with human(daemon) as h:
         assert h.get("/v1/agents").json()["matches"] == []
+
+
+@contextlib.asynccontextmanager
+async def recorded_shim(cfg: Config, slug: str, **kw):
+    """A served shim plus the (method, path, json body) of every request it really sends."""
+    kw.setdefault("start_daemon", False)
+    shim = Shim(cfg, slug=slug, workdir=f"/code/{slug}", **kw)
+    sent: list[tuple[str, str, dict | None]] = []
+
+    async def record(request: httpx.Request) -> None:
+        body = json.loads(request.content) if request.content else None
+        sent.append((request.method, request.url.path, body))
+
+    shim.client._http.event_hooks["request"].append(record)
+    async with Client(build_server(shim)) as client:
+        yield client, sent
+
+
+async def wait_for(sent, method, path_end, count=1):
+    for _ in range(50):
+        found = [b for m, p, b in sent if m == method and p.endswith(path_end)]
+        if len(found) >= count:
+            return found
+        await asyncio.sleep(0.1)
+    raise AssertionError(f"no {method} {path_end} in {sent}")
+
+
+async def test_the_shim_sends_the_wake_socket_on_register_and_heartbeats(daemon):
+    claude = {"pid": 4242, "start_time": "777"}
+    write_wake_file(daemon.cfg, 4242, "777", "/run/claude/a.sock")
+    async with recorded_shim(daemon.cfg, "web", claude=claude, heartbeat_s=0.1) as (
+        web,
+        sent,
+    ):
+        err, _, _ = await call(web, "covey_whoami")
+        registers = await wait_for(sent, "POST", "/agents/register")
+        beats = await wait_for(sent, "POST", "/agents/web/heartbeat")
+        # SessionStart may write the file after the first register: the next beat has it.
+        write_wake_file(daemon.cfg, 4242, "777", "/run/claude/b.sock")
+        for _ in range(50):
+            beats = await wait_for(sent, "POST", "/agents/web/heartbeat")
+            if beats[-1] == {"wake_socket": "/run/claude/b.sock"}:
+                break
+            await asyncio.sleep(0.1)
+    assert not err
+    assert registers[0]["wake_socket"] == "/run/claude/a.sock"
+    assert beats[0] == {"wake_socket": "/run/claude/a.sock"}
+    assert beats[-1] == {"wake_socket": "/run/claude/b.sock"}
+
+
+async def test_the_shim_sends_no_wake_socket_without_a_matching_file_or_process(daemon):
+    write_wake_file(
+        daemon.cfg, 4242, "other-start", "/run/claude/a.sock"
+    )  # recycled pid
+    async with recorded_shim(
+        daemon.cfg, "web", claude={"pid": 4242, "start_time": "777"}, heartbeat_s=0.1
+    ) as (web, sent):
+        await call(web, "covey_whoami")
+        registers = await wait_for(sent, "POST", "/agents/register")
+        beats = await wait_for(sent, "POST", "/agents/web/heartbeat")
+    assert "wake_socket" not in registers[0]
+    assert beats[0] is None
+    # No claude process at all: a file for some pid is never read.
+    async with recorded_shim(daemon.cfg, "api", heartbeat_s=0.1) as (api, sent):
+        await call(api, "covey_whoami")
+        registers = await wait_for(sent, "POST", "/agents/register")
+    assert "wake_socket" not in registers[0]
+
+
+async def test_the_wake_file_is_removed_on_exit_only_when_it_is_ours(daemon):
+    claude = {"pid": 4242, "start_time": "777"}
+    path = write_wake_file(daemon.cfg, 4242, "777", "/run/claude/a.sock")
+    async with shim_client(daemon.cfg, "web", claude=claude) as web:
+        await call(web, "covey_whoami")
+        assert path.exists()
+    assert not path.exists()
+    path = write_wake_file(daemon.cfg, 4242, "someone-else", "/run/claude/a.sock")
+    async with shim_client(daemon.cfg, "web", claude=claude) as web:
+        await call(web, "covey_whoami")
+    assert path.exists()

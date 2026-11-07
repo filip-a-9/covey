@@ -27,6 +27,8 @@ from covey.mcp.identity import (
     IdentityError,
     derive_slug,
     find_claude,
+    forget_wake_file,
+    read_wake_file,
     session_file,
     write_session_file,
 )
@@ -135,6 +137,9 @@ class Shim:
                 }
                 if self.session_id:
                     body["session_id"] = self.session_id
+                wake_socket = self._wake_socket()
+                if wake_socket:
+                    body["wake_socket"] = wake_socket
                 result = await self.client.call(
                     "POST", "/v1/agents/register", self._join_token(), json=body
                 )
@@ -177,8 +182,17 @@ class Shim:
         except Exception as exc:  # noqa: BLE001 (shutdown must not fail)
             log(f"cannot end the session: {exc!r}")
 
+    def _wake_socket(self) -> str | None:
+        """Claude Code's messaging socket, as the SessionStart hook left it. Read each time:
+        the hook may run after our first register. Workers never send one."""
+        if self.claude is None or self.worker_token is not None:
+            return None
+        return read_wake_file(self.cfg, self.claude)
+
     def forget_session_file(self) -> None:
-        """Remove the token file on exit, if it still holds our token."""
+        """Remove the token file (and the wake file) on exit, if they are ours."""
+        if self.claude is not None and self.worker_token is None:
+            forget_wake_file(self.cfg, self.claude)
         if self.claude is None or self.token is None:
             return
         path = session_file(self.cfg, self.claude)
@@ -237,7 +251,13 @@ class Shim:
             await self.register()
             return
         try:
-            await self.client.call("POST", f"/v1/agents/{self.slug}/heartbeat", token)
+            wake_socket = self._wake_socket()
+            await self.client.call(
+                "POST",
+                f"/v1/agents/{self.slug}/heartbeat",
+                token,
+                json={"wake_socket": wake_socket} if wake_socket else None,
+            )
         except DaemonError as exc:
             if exc.status == 401:
                 await self.register(stale=token)

@@ -724,3 +724,82 @@ def test_log_events_decode_json_detail(conn, world):
     )
     assert ev["detail"]["capability"] == "deploy"
     json.dumps(ev)
+
+
+# idle wake: wake_claim / release_wake_claims
+
+LONG_AGO = "2000-01-01T00:00:00.000Z"
+FAR_FUTURE = "9999-01-01T00:00:00.000Z"
+
+
+def stamped(conn, request_id):
+    row = conn.execute(
+        "SELECT stop_blocked_at FROM requests WHERE request_id = ?", (request_id,)
+    ).fetchone()
+    return row["stop_blocked_at"]
+
+
+def test_wake_claim_stamps_once_and_leaves_status_queued(conn, world):
+    r = ask(conn, world)
+    assert router.wake_claim(conn, r["request_id"]) is True
+    assert stamped(conn, r["request_id"]) is not None
+    assert router.get_request(conn, r["request_id"])["status"] == "queued"
+    assert router.wake_claim(conn, r["request_id"]) is False
+
+
+def test_wake_claim_refuses_a_request_that_is_not_queued(conn, world):
+    r = ask(conn, world, "deploy")  # awaiting_grant
+    assert router.wake_claim(conn, r["request_id"]) is False
+    assert stamped(conn, r["request_id"]) is None
+
+
+def test_stop_claim_skips_a_wake_claimed_request_until_released(conn, world):
+    r = ask(conn, world)
+    router.wake_claim(conn, r["request_id"])
+    assert router.stop_claim(conn, world["bob"]) == []
+    assert router.release_wake_claims(conn, FAR_FUTURE) == [r["request_id"]]
+    assert stamped(conn, r["request_id"]) is None
+    got = router.stop_claim(conn, world["bob"])
+    assert [g["request_id"] for g in got] == [r["request_id"]]
+    assert "request.wake_released" in audit_events(conn, r["request_id"])
+
+
+def test_release_only_takes_claims_older_than_the_cutoff(conn, world):
+    r = ask(conn, world)
+    router.wake_claim(conn, r["request_id"])
+    assert router.release_wake_claims(conn, LONG_AGO) == []
+    assert stamped(conn, r["request_id"]) is not None
+
+
+def test_an_inbox_read_acks_the_wake_so_release_leaves_it(conn, world):
+    r = ask(conn, world)
+    router.wake_claim(conn, r["request_id"])
+    assert [g["request_id"] for g in router.inbox(conn, world["bob"])] == [
+        r["request_id"]
+    ]
+    assert router.release_wake_claims(conn, FAR_FUTURE) == []
+    assert router.get_request(conn, r["request_id"])["status"] == "delivered"
+    assert stamped(conn, r["request_id"]) is not None
+
+
+def test_release_never_touches_stop_claimed_or_worker_claimed_rows(conn, world, node):
+    a, b = ask(conn, world), ask(conn, world)
+    stamp(conn, a, b)
+    router.stop_claim(conn, world["bob"])  # both delivered
+    c = ask(conn, world)
+    assert router.claim_for_worker(
+        conn, c["request_id"], store.daemon_actor(node.node_id)
+    )
+    assert router.release_wake_claims(conn, FAR_FUTURE) == []
+    for r in (a, b, c):
+        assert stamped(conn, r["request_id"]) is not None
+
+
+def test_release_wake_claim_frees_one_request_at_once(conn, world):
+    a, b = ask(conn, world), ask(conn, world)
+    router.wake_claim(conn, a["request_id"])
+    router.wake_claim(conn, b["request_id"])
+    assert router.release_wake_claim(conn, a["request_id"]) is True
+    assert router.release_wake_claim(conn, a["request_id"]) is False
+    assert stamped(conn, a["request_id"]) is None
+    assert stamped(conn, b["request_id"]) is not None

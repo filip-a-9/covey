@@ -8,6 +8,8 @@ Environment variables:
                         spend more than a worker's budget in its first turns)
     COVEY_NOTIFY        `auto` (desktop notification where one is available, always logged) or
                         `log` (log only) (default `auto`)
+    COVEY_IDLE_WAKE     `off` stops the daemon posting to idle sessions' messaging sockets
+                        (default on)
 """
 
 import os
@@ -35,6 +37,9 @@ class Config:
     worker_timeout_s: float = (
         600.0  # wall-clock kill, or the request deadline if sooner
     )
+
+    idle_wake: bool = True  # post queued requests to a live session's wake socket
+    idle_wake_fallback_s: float = 30.0  # unacked this long: hooks deliver it instead
 
     @property
     def db_path(self) -> Path:
@@ -86,8 +91,14 @@ def load(env: Mapping[str, str] | None = None) -> Config:
         raise ConfigError(
             f"COVEY_NOTIFY={notify!r} is not a mode. Set it to `auto` or `log`."
         )
+    idle_wake = env.get("COVEY_IDLE_WAKE") or "on"
+    if idle_wake not in ("on", "off"):
+        raise ConfigError(
+            f"COVEY_IDLE_WAKE={idle_wake!r} is not a mode. Set it to `on` or `off`."
+        )
     return Config(
         home=home,
+        idle_wake=idle_wake == "on",
         notify=notify,
         port=port,
         claude_bin=env.get("COVEY_CLAUDE") or "claude",

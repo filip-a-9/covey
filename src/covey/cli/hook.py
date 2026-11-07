@@ -41,7 +41,9 @@ def _context(cfg: Config, payload: dict[str, Any], *, starting: bool = False):
 
     info = read_session(cfg, os.environ)
     if info is not None:
-        return HookContext(info["slug"], HookClient(cfg, info["agent_token"]))
+        return HookContext(
+            info["slug"], HookClient(cfg, info["agent_token"]), cfg, os.environ
+        )
     if not starting:
         return None
     # SessionStart at startup runs before the shim has written its file.
@@ -49,7 +51,7 @@ def _context(cfg: Config, payload: dict[str, Any], *, starting: bool = False):
         slug = derive_slug(os.environ, Path(payload.get("cwd") or os.getcwd()))
     except IdentityError:
         return None
-    return HookContext(slug, None)
+    return HookContext(slug, None, cfg, os.environ)
 
 
 def _run(event: str, as_json: bool, *, starting: bool = False) -> None:

@@ -343,6 +343,49 @@ def stop_claim(conn: sqlite3.Connection, agent_id: str) -> list[dict[str, Any]]:
         return [get_request(conn, r["request_id"]) for r in rows]
 
 
+def wake_claim(conn: sqlite3.Connection, request_id: str) -> bool:
+    """Stamp a `queued` request as posted to a session's wake socket. The status stays
+    `queued`; the stamp keeps `stop_claim` and the waker off it. False if already stamped
+    or no longer queued."""
+    cur = conn.execute(
+        "UPDATE requests SET stop_blocked_at = ? WHERE request_id = ?"
+        " AND status = 'queued' AND stop_blocked_at IS NULL",
+        (store.now_iso(), request_id),
+    )
+    return cur.rowcount == 1
+
+
+def release_wake_claim(conn: sqlite3.Connection, request_id: str) -> bool:
+    """Clear the wake stamp on one request that is still `queued` (the post failed, or the
+    window ran out), so the hooks deliver it. Audits `request.wake_released`."""
+    with store.transaction(conn):
+        row = conn.execute(
+            "SELECT to_agent FROM requests WHERE request_id = ? AND status = 'queued'"
+            " AND stop_blocked_at IS NOT NULL",
+            (request_id,),
+        ).fetchone()
+        if row is None:
+            return False
+        conn.execute(
+            "UPDATE requests SET stop_blocked_at = NULL WHERE request_id = ?",
+            (request_id,),
+        )
+        node = row["to_agent"].split("@", 1)[1]
+        store.audit(conn, store.daemon_actor(node), "request.wake_released", request_id)
+    return True
+
+
+def release_wake_claims(conn: sqlite3.Connection, cutoff: str) -> list[str]:
+    """Release stamps older than `cutoff` on requests still `queued`: the wake was never
+    acked by a `covey_inbox` read. Returns the released ids."""
+    rows = conn.execute(
+        "SELECT request_id FROM requests WHERE status = 'queued'"
+        " AND stop_blocked_at < ? ORDER BY created_at, request_id",
+        (cutoff,),
+    ).fetchall()
+    return [r["request_id"] for r in rows if release_wake_claim(conn, r["request_id"])]
+
+
 def reply(
     conn: sqlite3.Connection,
     request_id: str,

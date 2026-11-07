@@ -201,6 +201,7 @@ def claim(conn: sqlite3.Connection, cfg: Config, running: set[str]) -> list[Clai
     rows = conn.execute(
         "SELECT r.request_id, a.slug FROM requests r JOIN agents a"
         " ON a.agent_id = r.to_agent WHERE r.status = 'queued'"
+        " AND r.stop_blocked_at IS NULL"
         " AND a.liveness = 'wakeable' ORDER BY r.created_at, r.rowid"
     ).fetchall()
     busy = set(running)
