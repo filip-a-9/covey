@@ -508,6 +508,45 @@ def install_checks() -> list[dict[str, Any]]:
     ]
 
 
+# The Claude Code version the hook fixtures in tests/fixtures/hooks were recorded against.
+TESTED_CLAUDE_CODE = (2, 1, 319)
+
+
+def parse_claude_version(text: str) -> tuple[int, ...] | None:
+    """`2.1.319 (Claude Code)` -> (2, 1, 319); None if no x.y.z is found."""
+    m = re.search(r"(\d+)\.(\d+)\.(\d+)", text)
+    return tuple(int(g) for g in m.groups()) if m else None
+
+
+def claude_version_check(output: str) -> dict[str, Any]:
+    """Pass with a `warn` note (never a failure) when the version is older than the tested
+    one, newer than it, or unreadable."""
+    tested = ".".join(map(str, TESTED_CLAUDE_CODE))
+    version = parse_claude_version(output)
+    if version is None:
+        c = check("claude", True, output or "(no output)")
+        warn = (
+            f"could not read a version from `claude --version`; Covey is tested with "
+            f"{tested}. Update Claude Code, and report hook problems if any."
+        )
+    elif version < TESTED_CLAUDE_CODE:
+        c = check("claude", True, output)
+        warn = (
+            f"older than the tested {tested}; hooks may not behave as recorded. "
+            "Update Claude Code (`claude update`)."
+        )
+    elif version > TESTED_CLAUDE_CODE:
+        c = check("claude", True, output)
+        warn = f"newer than the tested {tested}; report hook problems."
+    else:
+        c = check("claude", True, output)
+        warn = ""
+    c["version"] = ".".join(map(str, version)) if version else None
+    c["tested"] = version == TESTED_CLAUDE_CODE
+    c["warn"] = warn
+    return c
+
+
 def claude_check() -> dict[str, Any]:
     fix = "Install Claude Code (https://docs.claude.com/claude-code) and put `claude` on PATH."
     exe = shutil.which("claude")
@@ -519,9 +558,10 @@ def claude_check() -> dict[str, Any]:
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
         return check("claude", False, f"`claude --version` failed: {exc}", fix)
-    return check(
-        "claude", res.returncode == 0, res.stdout.strip() or res.stderr.strip(), fix
-    )
+    output = res.stdout.strip() or res.stderr.strip()
+    if res.returncode != 0:
+        return check("claude", False, output, fix)
+    return claude_version_check(output)
 
 
 def claude_for_coveyd_check(cfg: Any) -> dict[str, Any]:
@@ -616,6 +656,8 @@ def doctor(as_json: JsonOpt = False) -> None:
     lines = []
     for c in checks:
         lines.append(f"{'ok  ' if c['ok'] else 'FAIL'} {c['name']}: {c['detail']}")
+        if c.get("warn"):
+            lines.append(f"     warn: {c['warn']}")
         if not c["ok"]:
             lines.append(f"     fix: {c['fix']}")
     out(as_json, {"ok": ok, "checks": checks}, "\n".join(lines))

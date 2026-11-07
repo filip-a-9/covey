@@ -76,3 +76,43 @@ def test_notify_log_mode_needs_no_powershell(tmp_path, monkeypatch):
     monkeypatch.setattr("covey.daemon.notify.is_wsl", lambda *a, **k: True)
     monkeypatch.setenv("PATH", str(tmp_path / "empty"))
     assert checks()["notify backend"]["ok"] is True
+
+
+def stub_claude(tmp_path, monkeypatch, version_output):
+    exe = tmp_path / "bin" / "claude"
+    exe.parent.mkdir(parents=True, exist_ok=True)
+    exe.write_text(f"#!/bin/sh\necho '{version_output}'\n")
+    exe.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{exe.parent}:{os.environ['PATH']}")
+
+
+def test_parse_claude_version():
+    from covey.cli.commands import parse_claude_version
+
+    assert parse_claude_version("2.1.319 (Claude Code)") == (2, 1, 319)
+    assert parse_claude_version("no digits here") is None
+
+
+@pytest.mark.parametrize(
+    ("output", "version", "tested", "warns"),
+    [
+        ("2.1.300 (Claude Code)", "2.1.300", False, True),
+        ("2.1.319 (Claude Code)", "2.1.319", True, False),
+        ("2.2.0 (Claude Code)", "2.2.0", False, True),
+        ("garbage", None, False, True),
+    ],
+)
+def test_claude_version_check(tmp_path, monkeypatch, output, version, tested, warns):
+    stub_claude(tmp_path, monkeypatch, output)
+    c = checks()["claude"]
+    assert c["ok"] is True  # a warning never fails doctor
+    assert c["version"] == version
+    assert c["tested"] is tested
+    assert bool(c["warn"]) is warns
+
+
+def test_old_claude_warning_names_the_next_step(tmp_path, monkeypatch):
+    stub_claude(tmp_path, monkeypatch, "2.0.0 (Claude Code)")
+    res = runner.invoke(app, ["doctor"])
+    assert "warn:" in res.output
+    assert "Update" in res.output
