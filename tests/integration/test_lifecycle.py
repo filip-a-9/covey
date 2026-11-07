@@ -6,6 +6,8 @@ import socket
 import stat
 import subprocess
 import sys
+import time
+from pathlib import Path
 
 import httpx
 import pytest
@@ -264,3 +266,30 @@ def test_two_shims_starting_the_daemon_at_once_both_get_it(cli_env):
     assert errors == [None, None, None]
     assert daemon_answers(cfg)
     assert run("down").exit_code == 0
+    if sys.platform != "linux":
+        return  # the leak check below reads /proc
+    # every racing coveyd must be gone: a loser may not clobber the winner's pidfile
+    deadline = time.monotonic() + 5
+    while _daemons_for(cli_env) and time.monotonic() < deadline:
+        time.sleep(0.1)
+    leaked = _daemons_for(cli_env)
+    for pid in leaked:
+        os.kill(pid, 9)
+    assert leaked == []
+
+
+def _daemons_for(home) -> list[int]:
+    """Pids of `python -m covey.daemon` processes started with this COVEY_HOME."""
+    want = f"COVEY_HOME={home}".encode()
+    found = []
+    for entry in Path("/proc").iterdir():
+        if not entry.name.isdigit():
+            continue
+        try:
+            cmd = (entry / "cmdline").read_bytes().split(b"\0")
+            env = (entry / "environ").read_bytes().split(b"\0")
+        except OSError:
+            continue
+        if b"covey.daemon" in cmd and want in env:
+            found.append(int(entry.name))
+    return found

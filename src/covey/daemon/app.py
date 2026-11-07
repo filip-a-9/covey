@@ -958,10 +958,34 @@ def main() -> None:
             "Run `covey status`, or `covey down` to stop it first."
         )
     cfg.home.mkdir(mode=0o700, parents=True, exist_ok=True)
-    fd = os.open(cfg.pid_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "w") as f:
-        f.write(str(os.getpid()))
+    asyncio.run(_serve_with_pidfile(cfg))
+
+
+async def _serve_with_pidfile(cfg: Config) -> None:
+    """Serve, owning the pidfile only while this process is the one that bound the sockets.
+
+    Concurrent starts race: the losers fail to bind and must leave the winner's pidfile alone.
+    """
+    ready = asyncio.Event()
+    task = asyncio.create_task(serve(cfg, ready=ready))
+    wrote = False
     try:
-        asyncio.run(serve(cfg))
+        ready_wait = asyncio.create_task(ready.wait())
+        await asyncio.wait([ready_wait, task], return_when=asyncio.FIRST_COMPLETED)
+        ready_wait.cancel()
+        if ready.is_set():
+            fd = os.open(cfg.pid_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            with os.fdopen(fd, "w") as f:
+                f.write(str(os.getpid()))
+            wrote = True
+        await task
     finally:
-        cfg.pid_path.unlink(missing_ok=True)
+        if wrote and _pidfile_holds(cfg, os.getpid()):
+            cfg.pid_path.unlink(missing_ok=True)
+
+
+def _pidfile_holds(cfg: Config, pid: int) -> bool:
+    try:
+        return int(cfg.pid_path.read_text().strip()) == pid
+    except (OSError, ValueError):
+        return False
