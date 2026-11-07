@@ -1,0 +1,29 @@
+╭─ agents ────────────────────────╮╭─ activity ────────────────────────────────────────────────────╮
+│ all agents                      ││ 15:37:14  web → api  explain  ● done  "POST /orders now re…   │
+│ ● api claude  0↓ 0↑             ││           ↳ api: Likely cause: commit 43618d7 (2026-11-06)…   │
+│   Owns the orders API: the P…   ││ 15:38:40  web → api  run_tests  ● done  "Please run your t…   │
+│ ● web claude  0↓ 0↑             ││           ↳ api: api suite (`python3 -m unittest`): 4 test…   │
+│   Web client for placing ord…   ││                                                               │
+╰─────────────────────────────────╯│                                                               │
+                                   │                                                               │
+                                   │                                                               │
+                                   │                                                               │
+                                   │                                                               │
+                                   │                                                               │
+                                   │                                                               │
+                                   │                                                               │
+                                   │                                                               │
+                                   │                                                               │
+                                   │                                                               │
+                                   │                                                               │
+                                   │                                                               │
+                                   │                                                               │
+                                   │                                                               │
+                                   │                                                               │
+                                   │                                                               │
+                                   │                                                               │
+                                   ╰───────────────────────────────────────────────────────────────╯
+                                   ╭─ approvals ───────────────────────────────────────────────────╮
+                                   │ nothing waiting for you                                       │
+                                   ╰───────────────────────────────────────────────────────────────╯
+ / filter  g grants  l log  o once  s session  a always  d deny  q quit
