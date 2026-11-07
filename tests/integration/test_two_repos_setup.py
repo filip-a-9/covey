@@ -4,6 +4,7 @@ import json
 import os
 import shutil
 import socket
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -12,6 +13,9 @@ from pathlib import Path
 
 import httpx
 import pytest
+
+from covey.cli.client import human_client
+from covey.config import Config
 
 HERE = Path(__file__).resolve().parents[2] / "examples" / "two-repos"
 COVEY = Path(sys.executable).parent / "covey"
@@ -74,6 +78,17 @@ def go_live(root, env, slug):
     """What a Claude Code session's shim does at start: register, with no description."""
     home = root / ".covey"
     token = (home / "join-token").read_text().strip()
+    # The human re-adds the agent with its card as it is: a join-token takeover needs that.
+    with sqlite3.connect(
+        Config(home=home, port=int(env["COVEY_PORT"])).db_path
+    ) as db:  # `ps` hides gone agents
+        card = json.loads(
+            db.execute("SELECT card FROM agents WHERE slug = ?", (slug,)).fetchone()[0]
+        )
+    keep = ("slug", "kind", "summary", "tags", "capabilities", "workdir", "wakeable")
+    with human_client(Config(home=home, port=int(env["COVEY_PORT"]))) as human:
+        body = {k: card[k] for k in keep if k in card}
+        assert human.post("/v1/agents", json=body).status_code == 201
     r = httpx.post(
         f"http://127.0.0.1:{env['COVEY_PORT']}/v1/agents/register",
         json={

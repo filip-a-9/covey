@@ -8,18 +8,26 @@ Environment variables:
                         spend more than a worker's budget in its first turns)
     COVEY_NOTIFY        `auto` (desktop notification where one is available, always logged) or
                         `log` (log only) (default `auto`)
+    COVEY_WAKE_SOCKET_DIR  the one directory a session's messaging socket may live in
+                        (default $XDG_RUNTIME_DIR/cc-socks, else /run/user/<uid>/cc-socks)
     COVEY_IDLE_WAKE     `off` stops the daemon posting to idle sessions' messaging sockets
                         (default on)
 """
 
 import os
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 
 class ConfigError(ValueError):
     pass
+
+
+def default_wake_socket_dir(env: Mapping[str, str]) -> Path:
+    """Where Claude Code puts its messaging sockets: `cc-socks` in the user's runtime dir."""
+    runtime = env.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}"
+    return Path(runtime) / "cc-socks"
 
 
 @dataclass(frozen=True)
@@ -38,6 +46,11 @@ class Config:
         600.0  # wall-clock kill, or the request deadline if sooner
     )
 
+    # A wake socket outside this directory is ignored: the daemon writes to it, so an agent
+    # must not be able to name any path it likes.
+    wake_socket_dir: Path = field(
+        default_factory=lambda: default_wake_socket_dir(os.environ)
+    )
     idle_wake: bool = True  # post queued requests to a live session's wake socket
     idle_wake_fallback_s: float = (
         600.0  # a wake or Stop claim unread this long is re-offered
@@ -101,6 +114,9 @@ def load(env: Mapping[str, str] | None = None) -> Config:
     return Config(
         home=home,
         idle_wake=idle_wake == "on",
+        wake_socket_dir=Path(
+            env.get("COVEY_WAKE_SOCKET_DIR") or default_wake_socket_dir(env)
+        ),
         notify=notify,
         port=port,
         claude_bin=env.get("COVEY_CLAUDE") or "claude",

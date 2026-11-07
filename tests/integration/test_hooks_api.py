@@ -36,6 +36,9 @@ def register(tcp, daemon, slug, session_id=None, wakeable=False):
                 "/v1/agents", json={"slug": slug, "workdir": "/x", "wakeable": True}
             )
             assert made.status_code == 201, made.text
+            human.post(  # re-adding approves the takeover (slug_owned otherwise)
+                "/v1/agents", json={"slug": slug, "workdir": "/x", "wakeable": True}
+            )
     body = {
         "slug": slug,
         "kind": "claude-code",

@@ -92,7 +92,7 @@ def test_heartbeat_thread_keeps_the_agent_live(daemon):
         time.sleep(0.5)
         r = httpx.post(
             f"{daemon.base_url}/v1/agents/beater/heartbeat",
-            headers={"Authorization": f"Bearer {daemon.join_token}"},
+            headers={"Authorization": f"Bearer {agent.token}"},
         )
         assert r.json()["liveness"] == "live"
     finally:

@@ -119,7 +119,7 @@ def test_every_implemented_operation_matches_its_declared_response(daemon):
     hb = "/v1/agents/{slug}/heartbeat"
     chk.call(tcp, "post", hb, 200, {"slug": "web"}, headers=web)
     chk.call(tcp, "post", hb, 401, {"slug": "web"})
-    chk.call(tcp, "post", hb, 404, {"slug": "ghost"}, headers=join)
+    chk.call(uds, "post", hb, 404, {"slug": "ghost"})
 
     chk.call(tcp, "get", "/v1/agents", 200, params={"need": "explain"}, headers=web)
     chk.call(tcp, "get", "/v1/agents", 401)
@@ -247,7 +247,7 @@ def test_every_implemented_operation_matches_its_declared_response(daemon):
     uds.close()
 
 
-WAKE = "/run/user/1000/claude-code/messaging.sock"
+WAKE = "/run/user/1000/cc-socks/1.sock"
 
 
 def test_wake_socket_is_accepted_on_register_heartbeat_and_session_but_validated(

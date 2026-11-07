@@ -153,6 +153,63 @@ def _existing_not_live(conn: sqlite3.Connection, slug: str) -> sqlite3.Row | Non
     return row
 
 
+LEVEL_ORDER = {"open": 0, "gated": 1, "forbidden": 2}
+
+
+def _human_created(conn: sqlite3.Connection, agent_id: str) -> bool:
+    return (
+        conn.execute(
+            "SELECT 1 FROM audit WHERE event = 'agent.created' AND subject = ?",
+            (agent_id,),
+        ).fetchone()
+        is not None
+    )
+
+
+def _check_takeover_allowed(conn: sqlite3.Connection, agent_id: str, slug: str) -> None:
+    """The join token alone may not take a slug the human created or that holds grants
+    (either direction): that would hand the taker the slug's trust. The human approves the
+    next takeover by re-running `covey agent add` (an `agent.created` update row); a takeover
+    consumes the approval. Derived from the audit log, so no schema change."""
+    granted = conn.execute(
+        "SELECT 1 FROM grants WHERE requester = ? OR target = ?", (agent_id, agent_id)
+    ).fetchone()
+    if not (granted or _human_created(conn, agent_id)):
+        return
+    last = conn.execute(
+        "SELECT event, detail FROM audit WHERE subject = ?"
+        " AND event IN ('agent.created', 'agent.registered') ORDER BY id DESC LIMIT 1",
+        (agent_id,),
+    ).fetchone()
+    if (
+        last is not None
+        and last["event"] == "agent.created"
+        and json.loads(last["detail"]).get("update")
+    ):
+        return
+    raise CoveyError(
+        409,
+        "slug_owned",
+        f"The agent {slug!r} was set up by the human or holds grants, so a new session "
+        "cannot take it over with the join token alone.",
+        f"Ask the user to run `covey agent add {slug}` (or approve it in `covey top`), "
+        "then register again; or pick another slug.",
+    )
+
+
+def _keep_human_levels(
+    old: list[dict[str, Any]], new: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """`new` capabilities, except that a capability already in `old` keeps the stricter of
+    the two levels and one `new` leaves out is kept: an agent tightens, never loosens."""
+    by_name = {c["name"]: c for c in new}
+    for cap in old:
+        mine = by_name.get(cap["name"])
+        if mine is None or LEVEL_ORDER[cap["level"]] > LEVEL_ORDER[mine["level"]]:
+            by_name[cap["name"]] = {**(mine or {}), **cap}
+    return list(by_name.values())
+
+
 def create_agent(
     conn: sqlite3.Connection, node_id: str, body: dict[str, Any]
 ) -> dict[str, Any]:
@@ -244,9 +301,19 @@ def register(
     session_id = body.get("session_id")
     with store.transaction(conn):
         row = _existing_not_live(conn, slug)
+        if row is not None:
+            _check_takeover_allowed(conn, agent_id, slug)
         # A takeover keeps what only the human sets: the worker block, and wakeable
         # unless the body says otherwise (covey agent add, SPEC "Delivery").
         old = json.loads(row["card"]) if row is not None else {}
+        if row is not None and _human_created(conn, agent_id):
+            if "workdir" in old:
+                card["workdir"] = old["workdir"]
+            else:
+                card.pop("workdir", None)
+            card["capabilities"] = _keep_human_levels(
+                old.get("capabilities", []), card["capabilities"]
+            )
         if card["wakeable"] is None:
             card["wakeable"] = old.get("wakeable", False)
         if "worker" in old:
@@ -311,6 +378,14 @@ def heartbeat(conn: sqlite3.Connection, slug: str) -> dict[str, Any]:
                 "UPDATE agents SET liveness = 'live', last_seen = ? WHERE slug = ?",
                 (now, slug),
             )
+            if agent["liveness"] != "live":
+                store.audit(
+                    conn,
+                    agent["agent_id"],
+                    "agent.liveness",
+                    agent["agent_id"],
+                    {"from": agent["liveness"], "to": "live"},
+                )
         else:
             conn.execute("UPDATE agents SET last_seen = ? WHERE slug = ?", (now, slug))
     return {"liveness": "live" if attached else agent["liveness"], "last_seen": now}
@@ -359,13 +434,21 @@ def end_session(conn: sqlite3.Connection, slug: str, reason: str) -> dict[str, A
 
 
 def describe(
-    conn: sqlite3.Connection, slug: str, fields: dict[str, Any]
+    conn: sqlite3.Connection,
+    slug: str,
+    fields: dict[str, Any],
+    by_agent: bool = False,
 ) -> dict[str, Any]:
     """Update summary / tags / capabilities / instructions; re-validate; return the card.
-    Audits `agent.described`."""
+    `by_agent`: the agent's own token, which on a human-created slug may tighten a level
+    but never loosen one. Audits `agent.described`."""
     row = get_agent(conn, slug)
     card = card_of(row)
     changed = {k: fields[k] for k in DESCRIBABLE if k in fields}
+    if by_agent and "capabilities" in changed and _human_created(conn, row["agent_id"]):
+        changed["capabilities"] = _keep_human_levels(
+            card["capabilities"], changed["capabilities"]
+        )
     card.update(changed)
     _validate(card)
     with store.transaction(conn):

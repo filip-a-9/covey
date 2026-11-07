@@ -179,8 +179,23 @@ class Daemon:
             self.session_pids[agent_id] = root
 
     def note_wake_socket(self, agent_id: str, path: str | None) -> None:
-        if path:
-            self.wake_sockets[agent_id] = path
+        """Remember an agent's wake socket if it is one Claude Code could have made: a
+        `*.sock` directly in the session socket dir, not a symlink. The daemon writes to it,
+        so any other path an agent names is ignored."""
+        if not path or not self._is_session_socket(path):
+            return
+        self.wake_sockets[agent_id] = path
+
+    def _is_session_socket(self, path: str) -> bool:
+        if not path.endswith(".sock") or not os.path.isabs(path):
+            return False
+        if os.path.islink(path):
+            return False
+        try:
+            parent = os.path.realpath(os.path.dirname(path))
+            return parent == os.path.realpath(self.cfg.wake_socket_dir)
+        except (OSError, ValueError):
+            return False
 
     def wake(self, request: dict[str, Any]) -> None:
         """Idle wake: if this queued request's target is a live session with a wake socket,
@@ -616,7 +631,7 @@ def create_app(cfg: Config, ignore_pids: frozenset[int] = frozenset()) -> FastAP
     async def heartbeat_agent(
         request: Request,
         slug: Annotated[str, Path(pattern=SLUG)],
-        who: Annotated[Caller, Depends(require("join", "agent", "human"))],
+        who: Annotated[Caller, Depends(require("agent", "human"))],
         body: HeartbeatBody | None = None,
     ) -> dict:
         daemon = app.state.daemon
@@ -659,7 +674,9 @@ def create_app(cfg: Config, ignore_pids: frozenset[int] = frozenset()) -> FastAP
                 "The body has no fields to update.",
                 "Send at least one of summary, tags, capabilities, instructions.",
             )
-        card = registry.describe(daemon.conn, slug, fields)
+        card = registry.describe(
+            daemon.conn, slug, fields, by_agent=who.kind == "agent"
+        )
         await daemon.notify()
         return versioned(card=card)
 

@@ -188,6 +188,24 @@ def test_heartbeat_revives_and_stamps(conn, node):
     assert row["last_seen"] > "2020"
 
 
+def test_heartbeat_that_revives_an_agent_is_audited(conn, node):
+    reg(conn, node, session_id="s1")
+    with store.transaction(conn):
+        conn.execute("UPDATE agents SET liveness = 'wakeable' WHERE slug = 'api'")
+    registry.heartbeat(conn, "api")
+    rows = conn.execute(
+        "SELECT detail FROM audit WHERE event = 'agent.liveness'"
+    ).fetchall()
+    assert [json.loads(r["detail"])["to"] for r in rows] == ["live"]
+    registry.heartbeat(conn, "api")  # no change, no second row
+    assert (
+        conn.execute(
+            "SELECT count(*) FROM audit WHERE event = 'agent.liveness'"
+        ).fetchone()[0]
+        == 1
+    )
+
+
 def test_heartbeat_unknown_slug_is_404(conn):
     assert refusal(registry.heartbeat, conn, "nope").status == 404
 

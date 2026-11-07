@@ -82,6 +82,7 @@ def test_claimed_requests_are_not_claimed_again(conn, node, wcfg, web, tmp_path)
 
 def test_a_live_agent_is_left_to_its_session(conn, node, wcfg, web, tmp_path):
     pre_register(conn, node, "docs", tmp_path)
+    pre_register(conn, node, "docs", tmp_path)  # the human approves the takeover
     registry.register(
         conn,
         node.node_id,

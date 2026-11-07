@@ -318,14 +318,11 @@ def test_agent_token_cannot_register(tcp, web):
     assert r.status_code == 403
 
 
-def test_heartbeat_with_join_token_or_own_token_but_not_anothers(tcp, daemon, web, api):
-    assert (
-        tcp.post("/v1/agents/web/heartbeat", headers=auth(daemon.join_token))
-    ).status_code == 200
+def test_heartbeat_needs_the_agent_token_not_the_join_token(tcp, daemon, web, api):
+    join = auth(daemon.join_token)
+    assert tcp.post("/v1/agents/web/heartbeat", headers=join).status_code == 403
     assert tcp.post("/v1/agents/web/heartbeat", headers=web).status_code == 200
     assert tcp.post("/v1/agents/api/heartbeat", headers=web).status_code == 403
-    r = tcp.post("/v1/agents/ghost/heartbeat", headers=auth(daemon.join_token))
-    assert r.status_code == 404
 
 
 def test_identical_reply_is_idempotent_and_a_different_one_conflicts(tcp, web, api):
@@ -384,6 +381,9 @@ def test_a_shim_registering_keeps_the_card_the_human_set(tcp, daemon, human, tmp
         },
     )
     assert r.status_code < 300, r.text
+    approve = {"slug": "api", "workdir": str(tmp_path), "capabilities": caps}
+    approve["summary"] = "owns the orders API"
+    assert human.post("/v1/agents", json=approve).status_code < 300
     # What the shim sends: no description fields at all.
     shim_body = {"slug": "api", "kind": "claude-code", "delivery": "hooks"}
     r = tcp.post("/v1/agents/register", json=shim_body, headers=auth(daemon.join_token))
@@ -538,6 +538,15 @@ def test_register_takeover_keeps_wakeable_and_worker(tcp, human, daemon):
             "worker": {"max_turns": 2},
         },
     )
+    human.post(
+        "/v1/agents",
+        json={
+            "slug": "docs",
+            "workdir": "/x",
+            "wakeable": True,
+            "worker": {"max_turns": 2},
+        },
+    )
     r = tcp.post(
         "/v1/agents/register",
         json={"slug": "docs", "kind": "claude-code", "delivery": "hooks"},
@@ -559,9 +568,137 @@ def test_register_ignores_wakeable_from_the_join_token(tcp, human, daemon):
 
     # The human path still sets it, and a register cannot clear it.
     human.post("/v1/agents", json={"slug": "wk", "workdir": "/x", "wakeable": True})
+    human.post("/v1/agents", json={"slug": "wk", "workdir": "/x", "wakeable": True})
     r = tcp.post(
         "/v1/agents/register",
         json={**reg, "slug": "wk", "wakeable": False},
         headers=auth(daemon.join_token),
     )
     assert r.json()["card"]["wakeable"] is True
+
+
+# ------------------------------------------------------------ slug takeover (S1)
+
+
+def join_register(tcp, daemon, slug, **extra):
+    body = {"slug": slug, "kind": "python", "delivery": "poll", **extra}
+    return tcp.post("/v1/agents/register", json=body, headers=auth(daemon.join_token))
+
+
+def end_session(tcp, token, slug):
+    r = tcp.request(
+        "DELETE", f"/v1/agents/{slug}/session", json={"reason": "x"}, headers=token
+    )
+    assert r.status_code == 200, r.text
+
+
+def add_docs(human, **extra):
+    body = {
+        "slug": "docs",
+        "workdir": "/legit",
+        "wakeable": True,
+        "capabilities": [
+            {"name": "push", "level": "forbidden"},
+            {"name": "explain", "level": "open"},
+        ],
+        "worker": {"max_turns": 3},
+        **extra,
+    }
+    r = human.post("/v1/agents", json=body)
+    assert r.status_code == 201, r.text
+
+
+def test_join_token_cannot_take_a_slug_the_human_created(tcp, human, daemon):
+    add_docs(human)
+    r = join_register(
+        tcp, daemon, "docs", capabilities=[{"name": "push", "level": "open"}]
+    )
+    assert (r.status_code, r.json()["error"]["code"]) == (409, "slug_owned")
+
+
+@pytest.mark.parametrize("side", ["requester", "target"])
+def test_join_token_cannot_take_a_slug_that_holds_grants(tcp, human, daemon, side):
+    held = auth(register(tcp, daemon, "held", [("deploy", "gated")]))
+    other = auth(register(tcp, daemon, "other", [("deploy", "gated")]))
+    pair = {"requester": "held", "target": "other"}
+    if side == "target":
+        pair = {"requester": "other", "target": "held"}
+    g = human.post(
+        "/v1/grants", json={**pair, "capability": "deploy", "scope": "always"}
+    )
+    assert g.status_code == 201, g.text
+    end_session(tcp, held, "held")
+    r = join_register(tcp, daemon, "held")
+    assert (r.status_code, r.json()["error"]["code"]) == (409, "slug_owned")
+    assert other  # the counterpart stays registered
+
+
+def test_a_shim_created_slug_without_grants_stays_takeable(tcp, daemon):
+    old = auth(register(tcp, daemon, "plain"))
+    end_session(tcp, old, "plain")
+    assert join_register(tcp, daemon, "plain").status_code == 200
+
+
+def test_human_re_adding_allows_one_takeover_that_keeps_human_settings(
+    tcp, human, daemon
+):
+    add_docs(human)
+    assert join_register(tcp, daemon, "docs").json()["error"]["code"] == "slug_owned"
+    add_docs(human)  # `covey agent add docs` again: the human approves the next session
+    r = join_register(
+        tcp,
+        daemon,
+        "docs",
+        workdir="/attacker",
+        capabilities=[
+            {"name": "push", "level": "open"},
+            {"name": "mine", "level": "open"},
+        ],
+    )
+    assert r.status_code == 200, r.text
+    card = r.json()["card"]
+    levels = {c["name"]: c["level"] for c in card["capabilities"]}
+    assert (card["workdir"], card["worker"]) == ("/legit", {"max_turns": 3})
+    assert levels["push"] == "forbidden" and levels["explain"] == "open"
+    assert levels["mine"] == "open"  # an agent may still add its own capability
+    end_session(tcp, auth(r.json()["agent_token"]), "docs")
+    again = join_register(tcp, daemon, "docs")
+    assert again.json()["error"]["code"] == "slug_owned"  # one approval, one takeover
+
+
+def test_an_agent_cannot_loosen_a_level_the_human_set_but_may_tighten(
+    tcp, human, daemon
+):
+    add_docs(human)
+    add_docs(human)
+    r = join_register(tcp, daemon, "docs")
+    assert r.status_code == 200, r.text
+    docs = auth(r.json()["agent_token"])
+
+    def put(caps):
+        body = {"capabilities": [{"name": n, "level": lv} for n, lv in caps]}
+        res = tcp.put("/v1/agents/docs/card", json=body, headers=docs)
+        assert res.status_code == 200, res.text
+        return {c["name"]: c["level"] for c in res.json()["card"]["capabilities"]}
+
+    assert put([("push", "open"), ("explain", "open")])["push"] == "forbidden"
+    assert (
+        put([("explain", "open")])["push"] == "forbidden"
+    )  # omitting does not drop it
+    assert put([("push", "forbidden"), ("explain", "gated")])["explain"] == "gated"
+    assert put([("push", "forbidden"), ("explain", "open")])["explain"] == "gated"
+    human_put = human.put(
+        "/v1/agents/docs/card",
+        json={"capabilities": [{"name": "explain", "level": "open"}]},
+    )
+    assert human_put.status_code == 200  # the human may loosen
+
+
+def test_a_join_token_heartbeat_cannot_revive_a_human_created_agent(tcp, human, daemon):
+    add_docs(human)
+    r = tcp.post("/v1/agents/docs/heartbeat", headers=auth(daemon.join_token))
+    assert r.status_code == 403
+    card = human.get("/v1/agents").json()["matches"]
+    assert [c["card"]["liveness"] for c in card if c["card"]["slug"] == "docs"] == [
+        "wakeable"
+    ]

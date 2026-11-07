@@ -81,6 +81,7 @@ def make_daemon(short_home, **overrides):
         sweep_interval_s=0.2,
         claude_bin=NO_CLAUDE,
         idle_wake_fallback_s=WINDOW_S,
+        wake_socket_dir=short_home,  # where the fakes below listen
     )
     return run_daemon(replace(cfg, **overrides))
 
@@ -119,6 +120,9 @@ def register(tcp, daemon, slug, wake_socket=None, wakeable=False):
                 "/v1/agents", json={"slug": slug, "workdir": "/x", "wakeable": True}
             )
             assert made.status_code == 201, made.text
+            human.post(  # re-adding approves the takeover (slug_owned otherwise)
+                "/v1/agents", json={"slug": slug, "workdir": "/x", "wakeable": True}
+            )
     body = {
         "slug": slug,
         "kind": "claude-code",
@@ -498,3 +502,41 @@ def test_a_dead_asker_socket_is_dropped_on_a_reply(short_home, asker_fake):
             assert live.messages == []
         finally:
             live.close()
+
+
+def test_a_wake_socket_outside_the_session_socket_dir_is_never_written_to(
+    tcp, wake_daemon, short_home
+):
+    outside = short_home / "sub"
+    outside.mkdir()
+    evil = FakeSession(outside / "evil.sock")
+    try:
+        register(tcp, wake_daemon, "api", wake_socket=evil.path)
+        web = register(tcp, wake_daemon, "web")
+        ask(tcp, web)
+        time.sleep(SETTLE_S + WINDOW_S)
+        assert evil.messages == []
+    finally:
+        evil.close()
+
+
+@pytest.mark.parametrize("kind", ["symlink", "no_extension"])
+def test_a_wake_socket_must_end_in_sock_and_not_be_a_symlink(
+    tcp, wake_daemon, short_home, fake, kind
+):
+    if kind == "symlink":
+        path = short_home / "link.sock"
+        path.symlink_to(fake.path)
+        listener = fake
+    else:
+        listener = FakeSession(short_home / "noext")
+        path = short_home / "noext"
+    try:
+        register(tcp, wake_daemon, "api", wake_socket=str(path))
+        web = register(tcp, wake_daemon, "web")
+        ask(tcp, web)
+        time.sleep(SETTLE_S + WINDOW_S)
+        assert listener.messages == []
+    finally:
+        if listener is not fake:
+            listener.close()

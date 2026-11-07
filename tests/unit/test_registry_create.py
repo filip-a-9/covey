@@ -101,26 +101,35 @@ def test_create_is_audited_as_agent_created(conn, node):
 # ------------------------------------------------------- register takeover
 
 
+def approve(conn, node, **kw):
+    """The human re-runs `covey agent add`: the next session may take the slug over."""
+    create(conn, node, **kw)
+
+
 def test_register_takeover_keeps_wakeable_when_omitted(conn, node):
     create(conn, node, wakeable=True)
+    approve(conn, node, wakeable=True)
     card, _ = register(conn, node)
     assert card["wakeable"] is True
 
 
 def test_register_takeover_can_turn_wakeable_off(conn, node):
     create(conn, node, wakeable=True)
+    approve(conn, node, wakeable=True)
     card, _ = register(conn, node, wakeable=False)
     assert card["wakeable"] is False
 
 
 def test_register_takeover_keeps_the_worker_block(conn, node):
     create(conn, node, wakeable=True, worker={"max_turns": 3})
+    approve(conn, node, wakeable=True, worker={"max_turns": 3})
     card, _ = register(conn, node)
     assert card["worker"] == {"max_turns": 3}
 
 
 def test_register_cannot_set_a_worker_block(conn, node):
     create(conn, node, wakeable=True, worker={"max_turns": 3})
+    approve(conn, node, wakeable=True, worker={"max_turns": 3})
     card, _ = register(conn, node, worker={"max_turns": 200})
     assert card["worker"] == {"max_turns": 3}
     with store.transaction(conn):
@@ -132,6 +141,7 @@ def test_register_cannot_set_a_worker_block(conn, node):
 def test_a_swept_takeover_falls_back_to_wakeable(conn, node):
     """After the shim's session times out, a pre-registered agent is wakeable again."""
     create(conn, node, wakeable=True)
+    approve(conn, node, wakeable=True)
     register(conn, node)
     later = "2999-01-01T00:00:00Z"
     with store.transaction(conn):

@@ -1,5 +1,6 @@
 """Worker tokens: a headless worker acts as its agent without registering or going live."""
 
+import json
 from dataclasses import replace
 
 import pytest
@@ -140,6 +141,9 @@ def test_revoked_worker_token_is_401(client, daemon, worker):
 
 
 def test_a_real_session_can_register_while_a_worker_runs(client, daemon, worker):
+    row = daemon.conn.execute("SELECT card FROM agents WHERE slug = 'docs'").fetchone()
+    card = json.loads(row["card"])  # the human re-adds `docs`: approves the takeover
+    registry.create_agent(daemon.conn, daemon.node.node_id, {**card, "wakeable": True})
     register(client, daemon, "docs")
     assert liveness(daemon, "docs") == "live"
     assert client.get("/v1/whoami", headers=worker).status_code == 200
