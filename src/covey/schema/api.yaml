@@ -47,8 +47,9 @@ paths:
         Registers the card under its slug. If the slug exists and its holder is `live`,
         the call is refused with 409; otherwise the caller takes the slug over. Every
         successful call mints a new agent token and invalidates the previous one.
-        A takeover keeps the existing `worker` block (register cannot set it) and, when
-        `wakeable` is omitted, the existing `wakeable` value.
+        A takeover keeps the existing `worker` block and the existing `wakeable` value:
+        register cannot set either. A `wakeable` in the body is accepted and ignored
+        (false for a new agent); only the human token sets it, through createAgent.
       security:
         - joinToken: []
       requestBody:
@@ -731,7 +732,9 @@ components:
         webhook_url: { type: string, format: uri }
         wakeable:
           type: boolean
-          description: Omitted keeps the existing value on a takeover, and means false for a new agent.
+          description: >-
+            Ignored by registerAgent (the join token cannot set it). The existing value is
+            kept on a takeover, and a new agent gets false. Set it with createAgent.
         session_id:
           type: string
           description: The host's session id, if it has one (Claude Code's `session_id`).
