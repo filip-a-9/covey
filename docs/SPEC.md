@@ -374,7 +374,7 @@ covey/
     unit/                 # router, grants, ranking, hooks
     integration/          # two fake agents over HTTP; spawn with a stub `claude`
     fixtures/hooks/       # real Claude Code hook payloads, recorded
-  docs/                   # mkdocs-material: quickstart, how delivery works, trust model, card schema, FAQ
+  docs/                   # plain Markdown, rendered by GitHub: quickstart, how delivery works, trust model, card schema
   examples/
     two-repos/            # the hero demo, scripted so anyone can reproduce the GIF
     python-agent/         # a 40-line SDK agent

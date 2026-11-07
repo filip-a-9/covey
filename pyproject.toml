@@ -2,7 +2,7 @@
 name = "covey"
 version = "0.1.0.dev0"
 description = "A local agent mesh: discovery, delegation and permissions for the agents on your machine."
-readme = "docs/SPEC.md"
+readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "fastapi==0.162.0",
