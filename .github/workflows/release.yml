@@ -1,0 +1,55 @@
+name: release
+
+# Pushing a tag vX.Y.Z publishes that version to PyPI, after CI passes on the tagged
+# commit and a human approves the `pypi` environment. Never retag: yank and bump instead.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+
+  build:
+    needs: ci
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Same action and uv pins as ci.yml; bump them together.
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: "0.12.17"
+      - run: uv build
+      - run: .github/check-dist.sh dist "$GITHUB_REF_NAME"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Configured on GitHub with a required reviewer and limited to v* tags. PyPI's trusted
+    # publisher names this workflow file and this environment.
+    environment:
+      name: pypi
+      url: https://pypi.org/project/covey/
+    permissions:
+      id-token: write # PyPI trusted publishing (OIDC); no stored token
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: dist
+          path: dist/
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: "0.12.17"
+      - run: uv publish --trusted-publishing always dist/*
