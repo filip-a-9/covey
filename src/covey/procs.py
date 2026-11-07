@@ -22,11 +22,14 @@ def _parent_and_argv0(pid: int) -> tuple[int, str] | None:
             return None
         # The command name in field 2 may contain spaces; fields after the last ")" do not.
         return int(stat.rsplit(")", 1)[1].split()[1]), argv[0].decode(errors="replace")
-    out = _ps(pid, "ppid=,comm=")
+    # Not `comm=`: on macOS it is the resolved executable (a symlinked or versioned
+    # `claude` shows its target), so match argv[0] from the command line, as on Linux.
+    # A path with spaces in argv[0] is cut at the first space and won't match.
+    out = _ps(pid, "ppid=,args=")
     if out is None:
         return None
-    ppid, _, comm = out.partition(" ")
-    return int(ppid), comm.strip()
+    ppid, _, args = out.partition(" ")
+    return int(ppid), args.strip().split(" ", 1)[0]
 
 
 def _start_time(pid: int) -> str | None:
