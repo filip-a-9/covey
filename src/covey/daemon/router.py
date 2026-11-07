@@ -323,8 +323,9 @@ def stop_claim(conn: sqlite3.Connection, agent_id: str) -> list[dict[str, Any]]:
     """`queued` requests for `agent_id` not yet handed to a Stop hook, oldest first.
 
     Only `queued`: anything later (delivered, working, needs_input) was already seen by the
-    model. One transaction: stamps `stop_blocked_at` so the hook blocks at most once per
-    request, and moves each to `delivered` (audited `request.delivered`).
+    model. Stamps `stop_blocked_at` so the hook blocks at most once per claim, and leaves
+    the status `queued`: the model's own inbox read delivers it, as for an idle wake. If
+    the hook dies before printing the block, `release_wake_claims` offers it again.
     """
     with store.transaction(conn):
         rows = conn.execute(
@@ -338,8 +339,6 @@ def stop_claim(conn: sqlite3.Connection, agent_id: str) -> list[dict[str, Any]]:
                 "UPDATE requests SET stop_blocked_at = ? WHERE request_id = ?",
                 (now, row["request_id"]),
             )
-            _set_status(conn, row["request_id"], "delivered")
-            store.audit(conn, agent_id, "request.delivered", row["request_id"])
         return [get_request(conn, r["request_id"]) for r in rows]
 
 
@@ -376,8 +375,8 @@ def release_wake_claim(conn: sqlite3.Connection, request_id: str) -> bool:
 
 
 def release_wake_claims(conn: sqlite3.Connection, cutoff: str) -> list[str]:
-    """Release stamps older than `cutoff` on requests still `queued`: the wake was never
-    acked by a `covey_inbox` read. Returns the released ids."""
+    """Release stamps older than `cutoff` on requests still `queued`: the idle wake or Stop
+    hook block was never acked by a `covey_inbox` read. Returns the released ids."""
     rows = conn.execute(
         "SELECT request_id FROM requests WHERE status = 'queued'"
         " AND stop_blocked_at < ? ORDER BY created_at, request_id",

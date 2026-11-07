@@ -690,12 +690,14 @@ def create_app(cfg: Config, ignore_pids: frozenset[int] = frozenset()) -> FastAP
     async def put_agent_session(
         slug: Annotated[str, Path(pattern=SLUG)],
         body: SessionBody,
+        request: Request,
         who: Annotated[Caller, Depends(require("agent"))],
     ) -> dict:
         daemon = app.state.daemon
         not_worker(who)
         own_slug(who, slug)
         result = registry.set_session(daemon.conn, slug, body.session_id)
+        daemon.note_session(who.agent_id, request, replace=True)
         daemon.note_wake_socket(who.agent_id, body.wake_socket)
         await daemon.notify()
         return versioned(**result)

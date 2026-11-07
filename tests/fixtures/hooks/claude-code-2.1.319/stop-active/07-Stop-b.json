@@ -1,0 +1,24 @@
+{
+  "event": "Stop",
+  "agent": "b",
+  "command": "covey hook",
+  "exit": 0,
+  "duration_ms": 227,
+  "stdin": {
+    "session_id": "8b12b53d-6e87-4986-b271-65f07c6e2b74",
+    "transcript_path": "/home/USER/.claude/projects/-lab-b/8b12b53d-6e87-4986-b271-65f07c6e2b74.jsonl",
+    "cwd": "/lab/b",
+    "scratchpad_dir": "/tmp/claude-UID/-lab-b/8b12b53d-6e87-4986-b271-65f07c6e2b74/scratchpad",
+    "prompt_id": "608b21f0-1ebc-4fc0-b33b-55962bfb2036",
+    "permission_mode": "auto",
+    "effort": {
+      "level": "medium"
+    },
+    "hook_event_name": "Stop",
+    "stop_hook_active": true,
+    "last_assistant_message": "I replied \"FOUR\" to agent `a`'s latest request, and it now shows as `done`.",
+    "background_tasks": [],
+    "session_crons": []
+  },
+  "stdout": null
+}

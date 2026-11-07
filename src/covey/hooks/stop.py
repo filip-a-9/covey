@@ -17,8 +17,8 @@ def describe(request: dict[str, Any]) -> str:
 
 
 def run(payload: dict[str, Any], ctx: HookContext) -> dict[str, Any] | None:
-    if payload.get("stop_hook_active"):
-        return None
+    # No early return on `stop_hook_active`: a request that arrived during the extended
+    # turn is new, and the daemon's stamp already keeps each request from blocking twice.
     got = ctx.client.call("POST", f"/v1/agents/{ctx.slug}/inbox/stop-claim")
     requests = got.get("requests", [])
     if not requests:

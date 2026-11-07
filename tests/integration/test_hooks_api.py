@@ -100,7 +100,7 @@ def test_stop_claim_hands_out_each_request_once(tcp, daemon):
     claim = tcp.post("/v1/agents/api/inbox/stop-claim", headers=api)
     got = claim.json()["requests"]
     assert [r["request_id"] for r in got] == [rid]
-    assert got[0]["status"] == "delivered"
+    assert got[0]["status"] == "queued"  # the model's inbox read delivers it
     assert tcp.post("/v1/agents/api/inbox/stop-claim", headers=api).json() == {
         "covey": "1",
         "requests": [],

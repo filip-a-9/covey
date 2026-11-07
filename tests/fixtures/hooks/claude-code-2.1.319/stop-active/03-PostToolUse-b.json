@@ -1,0 +1,32 @@
+{
+  "event": "PostToolUse",
+  "agent": "b",
+  "command": "covey hook",
+  "exit": 0,
+  "duration_ms": 247,
+  "stdin": {
+    "session_id": "8b12b53d-6e87-4986-b271-65f07c6e2b74",
+    "transcript_path": "/home/USER/.claude/projects/-lab-b/8b12b53d-6e87-4986-b271-65f07c6e2b74.jsonl",
+    "cwd": "/lab/b",
+    "scratchpad_dir": "/tmp/claude-UID/-lab-b/8b12b53d-6e87-4986-b271-65f07c6e2b74/scratchpad",
+    "prompt_id": "608b21f0-1ebc-4fc0-b33b-55962bfb2036",
+    "permission_mode": "auto",
+    "effort": {
+      "level": "medium"
+    },
+    "hook_event_name": "PostToolUse",
+    "tool_name": "mcp__covey__covey_reply",
+    "tool_input": {
+      "request_id": "01M6VHE7H8336GG9VHRNG8J3E1",
+      "result": "THREE"
+    },
+    "tool_response": "{\"result\":\"Reply recorded: request `01M6VHE7H8336GG9VHRNG8J3E1` is `done`.\\n\\n```json\\n{\\n  \\\"covey\\\": \\\"1\\\",\\n  \\\"request\\\": {\\n    \\\"request_id\\\": \\\"01M6VHE7H8336GG9VHRNG8J3E1\\\",\\n    \\\"thread_id\\\": \\\"01M6VHE7H8336GG9VHRNG8J3E1\\\",\\n    \\\"parent_id\\\": null,\\n    \\\"from_agent\\\": \\\"a@01M6VH9TTQYESRBAM0KAQHN1D2\\\",\\n    \\\"to_agent\\\": \\\"b@01M6VH9TTQYESRBAM0KAQHN1D2\\\",\\n    \\\"capability\\\": \\\"explain\\\",\\n    \\\"task\\\": \\\"Reply with the single word THREE.\\\",\\n    \\\"context\\\": null,\\n    \\\"status\\\": \\\"done\\\",\\n    \\\"result\\\": \\\"THREE\\\",\\n    \\\"artifacts\\\": [],\\n    \\\"hops\\\": 0,\\n    \\\"created_at\\\": \\\"2026-11-07T17:38:28.008Z\\\",\\n    \\\"updated_at\\\": \\\"2026-11-07T17:38:34.968Z\\\",\\n    \\\"deadline\\\": null\\n  }\\n}\\n```\"}",
+    "tool_use_id": "toolu_01Ju9sZLzE4w3dJJSYBhD2af",
+    "duration_ms": 17,
+    "mcp_server": {
+      "name": "covey",
+      "source": "dynamic"
+    }
+  },
+  "stdout": null
+}

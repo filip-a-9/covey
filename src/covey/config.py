@@ -39,7 +39,9 @@ class Config:
     )
 
     idle_wake: bool = True  # post queued requests to a live session's wake socket
-    idle_wake_fallback_s: float = 600.0  # unacked this long: hooks deliver it instead
+    idle_wake_fallback_s: float = (
+        600.0  # a wake or Stop claim unread this long is re-offered
+    )
 
     @property
     def db_path(self) -> Path:

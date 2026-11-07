@@ -782,17 +782,44 @@ def test_an_inbox_read_acks_the_wake_so_release_leaves_it(conn, world):
     assert stamped(conn, r["request_id"]) is not None
 
 
-def test_release_never_touches_stop_claimed_or_worker_claimed_rows(conn, world, node):
-    a, b = ask(conn, world), ask(conn, world)
-    stamp(conn, a, b)
-    router.stop_claim(conn, world["bob"])  # both delivered
+def test_stop_claim_stamps_but_leaves_the_request_queued(conn, world):
+    r = ask(conn, world)
+    got = router.stop_claim(conn, world["bob"])
+    assert [(g["request_id"], g["status"]) for g in got] == [
+        (r["request_id"], "queued")
+    ]
+    assert stamped(conn, r["request_id"]) is not None
+    assert "request.delivered" not in audit_events(conn, r["request_id"])
+    assert router.stop_claim(conn, world["bob"]) == []
+
+
+def test_an_inbox_read_delivers_a_stop_claimed_request_so_release_leaves_it(
+    conn, world
+):
+    r = ask(conn, world)
+    router.stop_claim(conn, world["bob"])
+    router.inbox(conn, world["bob"])
+    assert router.get_request(conn, r["request_id"])["status"] == "delivered"
+    assert router.release_wake_claims(conn, FAR_FUTURE) == []
+
+
+def test_an_unread_stop_claim_is_released_and_offered_again(conn, world):
+    # The hook may die after the claim and before it prints the block.
+    r = ask(conn, world)
+    router.stop_claim(conn, world["bob"])
+    assert router.release_wake_claims(conn, LONG_AGO) == []
+    assert router.release_wake_claims(conn, FAR_FUTURE) == [r["request_id"]]
+    again = router.stop_claim(conn, world["bob"])
+    assert [g["request_id"] for g in again] == [r["request_id"]]
+
+
+def test_release_never_touches_worker_claimed_rows(conn, world, node):
     c = ask(conn, world)
     assert router.claim_for_worker(
         conn, c["request_id"], store.daemon_actor(node.node_id)
     )
     assert router.release_wake_claims(conn, FAR_FUTURE) == []
-    for r in (a, b, c):
-        assert stamped(conn, r["request_id"]) is not None
+    assert stamped(conn, c["request_id"]) is not None
 
 
 def test_release_wake_claim_frees_one_request_at_once(conn, world):

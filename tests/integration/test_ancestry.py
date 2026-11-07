@@ -47,9 +47,17 @@ elif mode == "agent":
         {"slug": slug, "kind": "python", "delivery": "poll", "summary": "fake session"})
     assert status == 200, status
     subprocess.run([sys.executable, __file__, "human", *sys.argv[2:]], check=True)
-    if len(sys.argv) > 6:  # stay alive so the test can probe from outside the tree
-        print("READY", flush=True)
-        sys.stdin.readline()
+elif mode == "session":
+    # Already registered elsewhere: only replace the session id, as SessionStart does
+    # after /clear. `join` carries the agent token here.
+    status, _ = call(sock, "PUT", "/v1/agents/" + slug + "/session", join,
+        {"session_id": "after-clear"})
+    assert status == 200, status
+    subprocess.run([sys.executable, __file__, "human", *sys.argv[2:]], check=True)
+if mode in ("agent", "session") and len(sys.argv) > 6:
+    # stay alive so the test can probe from outside the tree
+    print("READY", flush=True)
+    sys.stdin.readline()
 """
 
 
@@ -120,6 +128,36 @@ def test_sibling_of_a_session_is_accepted(daemon, client, fake_claude):
     finally:
         proc.stdin.close()
         proc.wait(10)
+
+
+def test_replacing_the_session_id_records_the_session_root(daemon, client, fake_claude):
+    # Registered over TCP, so no root is known until the PUT /session from inside.
+    with httpx.Client(base_url=daemon.base_url, timeout=15) as tcp:
+        r = tcp.post(
+            "/v1/agents/register",
+            json={"slug": "alice", "kind": "claude-code", "delivery": "hooks"},
+            headers={"Authorization": f"Bearer {daemon.join_token}"},
+        )
+    assert r.status_code == 200, r.text
+    out = subprocess.run(
+        [
+            str(fake_claude),
+            str(client),
+            "session",
+            daemon.socket_path,
+            daemon.human_token,
+            r.json()["agent_token"],
+            "alice",
+        ],
+        capture_output=True,
+        check=False,
+        text=True,
+        timeout=30,
+    )
+    assert out.returncode == 0, out.stderr
+    (result,) = [json.loads(x) for x in out.stdout.splitlines() if x.startswith("{")]
+    assert result["status"] == 403
+    assert result["data"]["error"]["code"] == "human_only"
 
 
 def test_session_that_ended_is_no_longer_checked(daemon, client, fake_claude):

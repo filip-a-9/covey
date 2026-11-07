@@ -169,11 +169,19 @@ def test_a_wake_file_failure_does_not_stop_the_put(tmp_path, monkeypatch):
     assert "agent `api`" in out["hookSpecificOutput"]["additionalContext"]
 
 
-def test_stop_does_nothing_when_a_stop_hook_is_already_active():
+def test_stop_still_claims_when_a_stop_hook_is_already_active():
+    # The daemon's stamp keeps each request from blocking twice, so no loop.
     fake = FakeDaemon({"requests": [request()]})
     stopped = {**payload("fresh", "06-Stop.json"), "stop_hook_active": True}
+    out = stop.run(stopped, HookContext("api", fake))
+    assert out["decision"] == "block"
+    assert "run the tests" in out["reason"]
+
+
+def test_stop_with_an_active_stop_hook_ends_the_turn_when_nothing_is_new():
+    fake = FakeDaemon({"requests": []})
+    stopped = {**payload("fresh", "06-Stop.json"), "stop_hook_active": True}
     assert stop.run(stopped, HookContext("api", fake)) is None
-    assert fake.calls == []
 
 
 def test_stop_lets_the_turn_end_when_nothing_is_pending():
