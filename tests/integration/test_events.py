@@ -50,10 +50,12 @@ def test_request_created_after_subscribing_is_streamed(daemon, tcp, human):
     with human.stream("GET", "/v1/events") as r:
         assert r.status_code == 200
         assert r.headers["content-type"].startswith("text/event-stream")
-        threading.Timer(0.3, create_later).start()
+        later = threading.Timer(0.3, create_later)
+        later.start()
         event_id, data = read_events(
             r.iter_lines(), lambda d: d["event"] == "request.created"
         )
+    later.join()  # the event can arrive before the thread has stored the id
     assert data["subject"] == created["id"]
     assert data["covey"]
     assert event_id == data["id"]
