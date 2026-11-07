@@ -237,7 +237,7 @@ def parse_capability(as_json: bool, item: str) -> dict[str, str]:
     name, eq, rest = item.partition("=")
     level, _, note = rest.partition(":")
     name, level, note = name.strip(), level.strip(), note.strip()
-    if not eq or level not in LEVELS or not CAPABILITY_NAME.match(name):
+    if not eq or level not in LEVELS or not CAPABILITY_NAME.fullmatch(name):
         raise fail(
             as_json,
             f"Capability {item!r} is not name=level[:note]. Use e.g. "

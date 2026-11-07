@@ -44,6 +44,17 @@ def code_of(excinfo):
 # create_request
 
 
+@pytest.mark.parametrize("capability", ["wipe\n", "wipe\r", "wipe "])
+def test_a_forbidden_name_with_trailing_whitespace_is_not_a_new_capability(
+    conn, world, capability
+):
+    """`$` matches before a final newline; `wipe\\n` must not slip past `forbidden`."""
+    with pytest.raises(CoveyError) as e:
+        ask(conn, world, capability)
+    assert e.value.status in (400, 422)
+    assert conn.execute("SELECT COUNT(*) FROM requests").fetchone()[0] == 0
+
+
 @pytest.mark.parametrize("capability", ["*", "Run Tests", "", "a*"])
 def test_capability_must_be_a_capability_name(conn, world, capability):
     """`*` exists only in grants the human makes; an ask can never smuggle one in."""

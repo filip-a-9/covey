@@ -162,7 +162,7 @@ def create_request(
     - `timeout_s` sets `deadline` = now + timeout_s.
     Audits `request.created` (and `approval.requested` when it lands in awaiting_grant).
     """
-    if not _CAPABILITY_NAME.match(capability):
+    if not _CAPABILITY_NAME.fullmatch(capability):
         raise CoveyError(
             400,
             "bad_capability",

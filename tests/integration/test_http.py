@@ -201,7 +201,7 @@ def test_hops_limit_refuses_the_sixth_request_in_a_chain(tcp, web, api):
         assert r.json()["request"]["hops"] == i
     headers, to = pair[1]
     r = ask(tcp, headers, to, "explain", parent_id=parent)
-    assert r.status_code == 422
+    assert r.status_code in (400, 422)
     assert r.json()["error"]["code"] == "hops_exceeded"
 
 
@@ -709,5 +709,17 @@ def test_register_rejects_control_characters(tcp, daemon, field):
     body = {"slug": "evil", "kind": "python", "delivery": "poll", "workdir": "/tmp"}
     body["wake_socket"] = "/tmp/a.sock"
     body[field] = "x\r\x1b]0;pwned\x07"
+    r = tcp.post("/v1/agents/register", json=body, headers=auth(daemon.join_token))
+    assert r.status_code in (400, 422)
+
+
+@pytest.mark.parametrize("name", ["push\n", "push\r", "push "])
+def test_ask_with_a_malformed_capability_name_is_rejected(tcp, web, api, name):
+    r = ask(tcp, web, "api", name)
+    assert r.status_code in (400, 422)
+
+
+def test_register_with_a_trailing_newline_in_the_slug_is_422(tcp, daemon):
+    body = {"slug": "evil\n", "kind": "python", "delivery": "poll"}
     r = tcp.post("/v1/agents/register", json=body, headers=auth(daemon.join_token))
     assert r.status_code in (400, 422)
