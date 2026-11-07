@@ -26,13 +26,20 @@ env:
 
 jobs:
   check:
-    name: ${{ matrix.os }}
+    name: ${{ matrix.os }} py${{ matrix.python }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
+    env:
+      UV_PYTHON: ${{ matrix.python }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
+        python: ["3.11"]
+        include:
+          # requires-python is >=3.11: also run the newest on Linux.
+          - os: ubuntu-latest
+            python: "3.13"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -46,10 +53,23 @@ jobs:
           version: "0.12.17"
           enable-cache: true
 
-      # uv reads .python-version (3.11) and downloads that interpreter itself.
+      # uv downloads the matrix interpreter itself (UV_PYTHON overrides .python-version).
       - run: uv sync --all-extras --locked
       - run: uv run ruff check .
       - run: uv run ruff format --check .
       # tests/conftest.py points COVEY_CLAUDE at a nonexistent binary and COVEY_NOTIFY at
       # `log` for every test, so no real `claude` is reached and no env is needed here.
-      - run: uv run pytest -q
+      # The gate is the measured coverage (98.8%) of router, grants and registry, rounded down.
+      - run: >-
+          uv run pytest -q --cov=covey.daemon.router --cov=covey.daemon.grants
+          --cov=covey.daemon.registry --cov-fail-under=98
+
+      # Smoke: the daemon starts and doctor answers as JSON. doctor exits 1 on a runner
+      # without `claude`, so its status is not checked; `up` failing fails the step.
+      - if: runner.os == 'Linux' && matrix.python == '3.11'
+        env:
+          COVEY_HOME: ${{ runner.temp }}/covey-smoke
+        run: |
+          uv run covey up
+          uv run covey doctor --json || true
+          uv run covey down

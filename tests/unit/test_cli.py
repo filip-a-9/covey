@@ -206,3 +206,10 @@ def test_top_without_the_tui_extra_names_the_uv_tool_reinstall(monkeypatch):
     assert "uv tool install" in res.output
     assert "covey-mesh[tui]" in res.output
     assert "pip install" not in res.output
+
+
+def test_windows_exits_2_with_a_wsl_hint(monkeypatch):
+    monkeypatch.setattr(sys, "platform", "win32")
+    res = CliRunner().invoke(app, ["status"])
+    assert res.exit_code == 2
+    assert "WSL" in res.output

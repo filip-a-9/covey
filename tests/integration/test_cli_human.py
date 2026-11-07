@@ -499,3 +499,63 @@ def test_log_follow_exits_cleanly_on_ctrl_c(follow):
     f.proc.send_signal(signal.SIGINT)
     assert f.proc.wait(5) == 0
     assert not any("Traceback" in line for line in list(f.lines.queue))
+
+
+def inbox(tcp, agent):
+    return tcp.get("/v1/agents/api/inbox", headers=agent).json()["requests"]
+
+
+def test_denied_request_is_refused_for_the_requester_and_never_reaches_the_target(
+    env, tcp, web, api
+):
+    rid = gated_request(tcp, web)
+    cli("deny", rid)
+    seen = tcp.get(f"/v1/requests/{rid}", headers=web).json()["request"]
+    assert seen["status"] == "refused"
+    assert inbox(tcp, api) == []
+
+
+def ask_gated(tcp, web):
+    r = tcp.post(
+        "/v1/requests",
+        json={"to": "api", "capability": "run_tests", "task": "again"},
+        headers=web,
+    )
+    return r.json()["request"]
+
+
+def finish(tcp, api, rid):
+    assert [x["request_id"] for x in inbox(tcp, api)] == [rid]
+    r = tcp.post(
+        f"/v1/requests/{rid}/reply",
+        json={"result": "ok", "status": "done"},
+        headers=api,
+    )
+    assert r.status_code == 200, r.text
+
+
+def test_once_grant_serves_one_request_then_asks_again(env, tcp, web, api):
+    cli("grant", "web", "api", "run_tests", "--once")
+    first = ask_gated(tcp, web)
+    assert first["status"] == "queued"
+    finish(tcp, api, first["request_id"])
+    assert ask_gated(tcp, web)["status"] == "awaiting_grant"
+
+
+def test_always_grant_serves_every_request(env, tcp, web, api):
+    cli("grant", "web", "api", "run_tests", "--always")
+    for _ in range(2):
+        req = ask_gated(tcp, web)
+        assert req["status"] == "queued"
+        finish(tcp, api, req["request_id"])
+
+
+def test_forbidden_capability_is_refused_even_with_a_grant(env, tcp, daemon, web):
+    register(tcp, daemon, "api", [("wipe", "forbidden")])
+    cli("grant", "web", "api", "wipe", "--always")
+    r = tcp.post(
+        "/v1/requests",
+        json={"to": "api", "capability": "wipe", "task": "wipe it"},
+        headers=web,
+    )
+    assert r.json()["request"]["status"] == "refused"

@@ -50,3 +50,14 @@ def test_wake_message_is_the_frame_without_task_text():
     msg = frames.wake_message("api", "review", "01ABC")
     who = "- From `api` (review), request 01ABC"
     assert msg == f"{frames.FRAME}\n{who}\n{frames.CALL_TO_ACTION}"
+
+
+async def test_post_times_out_with_oserror_when_the_connection_hangs(
+    sock_dir, monkeypatch
+):
+    async def hang(path):
+        await asyncio.sleep(30)
+
+    monkeypatch.setattr(asyncio, "open_unix_connection", hang)
+    with pytest.raises(OSError):
+        await wake.post(str(sock_dir / "w.sock"), "hello", timeout_s=0.1)

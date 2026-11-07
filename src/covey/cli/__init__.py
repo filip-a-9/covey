@@ -21,6 +21,14 @@ app = typer.Typer(
     help="Covey: a local agent mesh.", no_args_is_help=True, add_completion=False
 )
 
+
+@app.callback()
+def refuse_windows() -> None:
+    if sys.platform == "win32":
+        typer.echo("Covey needs Linux or macOS for now; on Windows use WSL.", err=True)
+        raise typer.Exit(2)
+
+
 app.add_typer(hook_app, name="hook")
 app.command("init")(init_command)
 
