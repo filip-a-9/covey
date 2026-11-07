@@ -310,7 +310,7 @@ Keys: `/` filter, `enter` open a request's full transcript, `g` grants view, `l`
 
 ## Scope: v1, v1.1, v2, non-goals
 
-**v1 ships when the hero demo can be recorded in one take on a fresh machine using only `uvx covey init`.** Anything not needed for that is cut.
+**v1 ships when the hero demo can be recorded in one take on a fresh machine using only `uv tool install covey && covey init`.** (`uvx` alone can't work: hooks need a `covey` that outlives uv's temporary environment.) Anything not needed for that is cut.
 
 **v1 (launch):**
 
@@ -347,7 +347,7 @@ Keys: `/` filter, `enter` open a request's full transcript, `g` grants view, `l`
 
 ## Repo layout, stack, build milestones
 
-**One Python package, `covey`, installable with `uv`, with the daemon, shim, CLI, TUI and SDK all inside it.** A single package keeps `uvx covey init` a one-liner and avoids version skew between the pieces; the SDK is importable as `covey.sdk` without pulling in Textual.
+**One Python package, `covey`, installable with `uv`, with the daemon, shim, CLI, TUI and SDK all inside it.** A single package keeps `uv tool install covey` a one-liner and avoids version skew between the pieces; the SDK is importable as `covey.sdk` without pulling in Textual.
 
 ```text
 covey/
@@ -409,7 +409,7 @@ Core first because everything else is a client of it; the shim and hooks start o
 
 **The launch is one GIF, one sentence, and a README that answers the three questions every HN commenter will ask in the first ten minutes: how does it wake an idle session, why not A2A, and what can go wrong.** Since you said distribution is not your edge, the plan leans on the artifact doing the talking and on a private beta producing the first wave of honest voices.
 
-**README structure, top to bottom:** the one-liner ("Covey is a local agent mesh: discovery, delegation and permissions for the agents already running on your machine"), the hero GIF, a three-line install (`uvx covey init`, open two Claude Code sessions, ask one to ask the other), a "How it works" section with the delivery diagram, "Covey vs A2A vs OpenClaw sub-agents" as a short honest table, the trust model in five sentences, the non-goals, and a "Status" line that says exactly what works and what does not. No badges wall, no emoji headers.
+**README structure, top to bottom:** the one-liner ("Covey is a local agent mesh: discovery, delegation and permissions for the agents already running on your machine"), the hero GIF, a three-line install (`uv tool install covey && covey init`, open two Claude Code sessions, ask one to ask the other), a "How it works" section with the delivery diagram, "Covey vs A2A vs OpenClaw sub-agents" as a short honest table, the trust model in five sentences, the non-goals, and a "Status" line that says exactly what works and what does not. No badges wall, no emoji headers.
 
 **Private beta (Nov 28 to Dec 7).** Ten to twenty developers who run several Claude Code sessions daily: people from the Claude Code Discord, r/ClaudeAI, OpenClaw's community, and anyone who has starred `claude-mem` or `superpowers`. Ask each for one thing: record their own 30-second GIF of Covey doing something in their setup. Three or four of those in a "Seen in the wild" section on launch day is worth more than any copy you write.
 
