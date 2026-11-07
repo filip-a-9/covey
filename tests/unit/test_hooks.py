@@ -7,7 +7,7 @@ import pytest
 
 from covey.config import Config
 from covey.hooks import post_tool, session_end, session_start, stop
-from covey.hooks.client import HookContext
+from covey.hooks.client import HookContext, HookError
 from covey.mcp.identity import read_wake_file
 
 RECORDED = Path(__file__).parents[1] / "fixtures" / "hooks" / "claude-code-2.1.319"
@@ -50,12 +50,67 @@ def test_session_start_reports_the_session_id_and_nudges():
             "/v1/agents/api/session",
             None,
             {"session_id": "9624e4dc-cfb2-4bd3-8476-3b02dc83fb2b"},
-        )
+        ),
+        ("GET", "/v1/whoami", None, None),
     ]
     hso = out["hookSpecificOutput"]
     assert hso["hookEventName"] == "SessionStart"
     assert "agent `api`" in hso["additionalContext"]
     assert "covey_describe" in hso["additionalContext"]
+
+
+class CardDaemon(FakeDaemon):
+    """Answers whoami with `card`; the session PUT with an empty body."""
+
+    def __init__(self, card=None, whoami_fails=False):
+        super().__init__()
+        self.card = card
+        self.whoami_fails = whoami_fails
+
+    def call(self, method, path, *, params=None, json=None):
+        super().call(method, path, params=params, json=json)
+        if path != "/v1/whoami":
+            return {}
+        if self.whoami_fails:
+            raise HookError("coveyd answered 500 to GET /v1/whoami")
+        return {"card": self.card, "liveness": "live"}
+
+
+FILLED = {
+    "summary": "Owns the billing API and its tests.",
+    "capabilities": [{"name": "run_tests", "level": "open"}],
+}
+
+
+def start_context(fake):
+    out = session_start.run(
+        payload("fresh", "01-SessionStart.json"), HookContext("api", fake)
+    )
+    return out["hookSpecificOutput"]["additionalContext"]
+
+
+def test_session_start_with_a_filled_card_says_it_is_set_instead_of_nudging():
+    text = start_context(CardDaemon(FILLED))
+    assert "agent `api`" in text
+    assert FILLED["summary"] in text
+    assert text != session_start.NUDGE.format(slug="api")
+
+
+@pytest.mark.parametrize(
+    "card",
+    [
+        {"summary": "", "capabilities": [{"name": "run_tests", "level": "open"}]},
+        {"summary": "Owns the billing API.", "capabilities": []},
+    ],
+    ids=["no-summary", "no-capabilities"],
+)
+def test_session_start_with_an_unfinished_card_still_nudges(card):
+    assert start_context(CardDaemon(card)) == session_start.NUDGE.format(slug="api")
+
+
+def test_session_start_still_nudges_when_whoami_fails():
+    fake = CardDaemon(FILLED, whoami_fails=True)
+    assert start_context(fake) == session_start.NUDGE.format(slug="api")
 
 
 def test_session_start_before_the_shim_still_nudges_without_calling_the_daemon():

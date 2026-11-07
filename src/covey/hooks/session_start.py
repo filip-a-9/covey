@@ -1,4 +1,5 @@
-"""SessionStart: report the new session id and nudge the model to describe itself."""
+"""SessionStart: report the new session id, and nudge the model to describe itself unless
+its card is already filled in."""
 
 import contextlib
 from typing import Any
@@ -10,6 +11,11 @@ from covey.procs import _start_time
 NUDGE = (
     "You are agent `{slug}` in the covey. Call `covey_describe` once you know what this "
     "repo does. Other agents may ask you for help."
+)
+
+CARD_SET = (
+    "You are agent `{slug}` in the covey; your card is set (summary: {summary}). Other "
+    "agents may ask you for help. Call `covey_describe` only if the card is wrong."
 )
 
 
@@ -27,6 +33,19 @@ def _leave_wake_socket(ctx: HookContext) -> str | None:
     return socket
 
 
+def _context_line(ctx: HookContext) -> str:
+    """The short line when the card has a summary and a capability, else the nudge. Any
+    failure reading the card falls back to the nudge: a hook never breaks session start."""
+    if ctx.client is not None:
+        try:
+            card = ctx.client.call("GET", "/v1/whoami")["card"]
+        except Exception:  # noqa: BLE001
+            card = None
+        if card and card.get("summary", "").strip() and card.get("capabilities"):
+            return CARD_SET.format(slug=ctx.slug, summary=card["summary"].strip())
+    return NUDGE.format(slug=ctx.slug)
+
+
 def run(payload: dict[str, Any], ctx: HookContext) -> dict[str, Any]:
     """`ctx.client` is None at startup, when the shim has not written its file yet: the
     nudge still goes out, with the slug the shim will derive."""
@@ -41,6 +60,6 @@ def run(payload: dict[str, Any], ctx: HookContext) -> dict[str, Any]:
     return {
         "hookSpecificOutput": {
             "hookEventName": "SessionStart",
-            "additionalContext": NUDGE.format(slug=ctx.slug),
+            "additionalContext": _context_line(ctx),
         }
     }
