@@ -31,3 +31,7 @@ def test_notify_defaults_to_auto_and_can_be_set_to_log():
 def test_bad_notify_is_refused():
     with pytest.raises(ConfigError):
         load({"COVEY_NOTIFY": "toast"})
+
+
+def test_idle_wake_fallback_defaults_to_ten_minutes():
+    assert load({}).idle_wake_fallback_s == 600.0
