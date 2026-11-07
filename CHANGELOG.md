@@ -2,7 +2,7 @@
 
 All notable changes are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/).
 
-## [Unreleased] - 0.1.2
+## [0.1.2] - 2026-11-07
 
 ### Fixed
 
@@ -48,6 +48,6 @@ First release, published to PyPI as `covey-mesh`.
 - The Python SDK, `covey top`, `covey doctor`, the scripted two-repo hero demo, and the docs.
 - CI on Linux and macOS, and a tag-driven release workflow.
 
-[Unreleased]: https://github.com/filip-a-9/covey/compare/v0.1.1...HEAD
+[0.1.2]: https://github.com/filip-a-9/covey/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/filip-a-9/covey/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/filip-a-9/covey/releases/tag/v0.1.0
