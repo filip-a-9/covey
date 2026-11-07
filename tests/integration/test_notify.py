@@ -122,3 +122,35 @@ def test_after_the_stream_closes_the_next_gated_request_notifies(
         notify.drain()
         time.sleep(0.1)
     assert sent.texts
+
+
+@pytest.fixture
+def gone(human, tmp_path):
+    """An agent with a card but no session, and not wakeable."""
+    res = human.post("/v1/agents", json={"slug": "old", "workdir": str(tmp_path)})
+    assert res.status_code == 201, res.text
+    assert res.json()["card"]["liveness"] == "gone"
+    return "old"
+
+
+def assert_refused_and_notified(tcp, web, gone, sent):
+    res = ask(tcp, web, gone, "explain")
+    assert res.status_code == 422
+    assert res.json()["error"]["code"] == "target_unreachable"
+    notify.drain()
+    assert len(sent.texts) == 1
+    assert "web" in sent.texts[0] and gone in sent.texts[0]
+
+
+def test_asking_a_gone_agent_notifies_the_human(tcp, web, gone, sent):
+    assert_refused_and_notified(tcp, web, gone, sent)
+
+
+def test_asking_a_gone_agent_notifies_even_with_an_events_stream_open(
+    tcp, human, web, gone, sent
+):
+    # The refused request is never stored, so a watcher's TUI has nothing to show.
+    with human.stream("GET", "/v1/events") as r:
+        lines = r.iter_lines()  # kept: a dropped iterator closes the stream
+        next(lines)
+        assert_refused_and_notified(tcp, web, gone, sent)

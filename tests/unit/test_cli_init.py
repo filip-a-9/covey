@@ -229,6 +229,18 @@ def test_uvx_environment_is_refused_with_the_next_step(dirs, hooks_ready, epheme
     assert runner.invoke(app, ["init"]).exit_code == 1
 
 
+@pytest.mark.parametrize(
+    ("args", "next_step"),
+    [(["init"], "&& covey init`"), (["init", "--user"], "&& covey init --user`")],
+)
+def test_uvx_refusal_names_the_scope_the_user_ran(
+    dirs, hooks_ready, ephemeral, args, next_step
+):
+    res = runner.invoke(app, [*args, "--json"])
+    assert res.exit_code == 1
+    assert next_step in json.loads(res.output)["error"]
+
+
 def test_uv_default_cache_layout_is_recognised_without_the_env_var(
     dirs, hooks_ready, tmp_path, monkeypatch
 ):

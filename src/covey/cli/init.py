@@ -34,7 +34,7 @@ HOOKS: dict[str, tuple[str, str | None]] = {
 }
 UVX_REFUSAL = (
     "`covey init` is running from uvx's temporary environment ({exe}), which uv can delete. "
-    "Run `uv tool install covey-mesh && covey init` instead."
+    "Run `uv tool install covey-mesh && {init}` instead."
 )
 
 
@@ -88,9 +88,10 @@ def is_ephemeral(exe: Path) -> bool:
     return False
 
 
-def covey_executable() -> str:
+def covey_executable(init: str = "covey init") -> str:
     """Absolute path of the `covey` that is running: the console script in argv[0], else
-    `covey` on PATH, else next to this Python. Raises InitError when none is a real file."""
+    `covey` on PATH, else next to this Python. Raises InitError when none is a real file;
+    its next step repeats `init`, the command the user ran."""
     argv0 = Path(sys.argv[0])
     candidates = [argv0.absolute() if argv0.name == "covey" else None]
     found = shutil.which("covey")
@@ -101,11 +102,11 @@ def covey_executable() -> str:
     for path in candidates:
         if path is not None and path.is_file():
             if is_ephemeral(path):
-                raise InitError(UVX_REFUSAL.format(exe=path))
+                raise InitError(UVX_REFUSAL.format(exe=path, init=init))
             return str(path)
     raise InitError(
         "Could not find the `covey` executable to write into the hooks. "
-        "Run `uv tool install covey-mesh && covey init`."
+        f"Run `uv tool install covey-mesh && {init}`."
     )
 
 
@@ -207,7 +208,7 @@ def run_init(base: Path, home: Path | None) -> list[dict[str, str]]:
             home / ".claude" / "settings.json",
             home / ".claude.json",
         )
-    exe = covey_executable()
+    exe = covey_executable("covey init" if home is None else "covey init --user")
     settings, mcp = read_json(settings_path), read_json(mcp_path)
     done = merge_hooks(settings, exe) if hooks_available() else []
     changes = [

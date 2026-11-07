@@ -720,20 +720,30 @@ def create_app(cfg: Config, ignore_pids: frozenset[int] = frozenset()) -> FastAP
         body: AskBody, who: Annotated[Caller, Depends(require("human", "agent"))]
     ) -> dict:
         daemon = app.state.daemon
-        req = router.create_request(
-            daemon.conn,
-            who.agent_id,
-            body.to,
-            body.capability,
-            body.task,
-            context=body.context,
-            thread_id=body.thread_id,
-            # A worker that starts a fresh thread would reset hops; continue its request.
-            parent_id=body.parent_id
-            or (None if body.thread_id else who.worker_request),
-            timeout_s=body.timeout_s,
-            max_hops=daemon.cfg.max_hops,
-        )
+        try:
+            req = router.create_request(
+                daemon.conn,
+                who.agent_id,
+                body.to,
+                body.capability,
+                body.task,
+                context=body.context,
+                thread_id=body.thread_id,
+                # A worker that starts a fresh thread would reset hops; continue its request.
+                parent_id=body.parent_id
+                or (None if body.thread_id else who.worker_request),
+                timeout_s=body.timeout_s,
+                max_hops=daemon.cfg.max_hops,
+            )
+        except CoveyError as exc:
+            # Always, even with a watcher: the refused request is never stored, so no TUI shows it.
+            if exc.code == "target_unreachable":
+                notify.human(
+                    f"{who.slug or 'the human'} asked {body.to}, but {body.to} has no session"
+                    " and is not wakeable. Start a Claude Code session in its repo, or run"
+                    f" `covey agent add {body.to} --workdir <its repo> --wakeable`."
+                )
+            raise
         daemon.wake(req)
         await daemon.notify()
         daemon.waker.kick()
