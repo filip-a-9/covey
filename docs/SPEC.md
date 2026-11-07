@@ -244,6 +244,7 @@ A wakeable agent's card may also carry an optional `worker` block, `{"allowed_to
 | Method & path | Purpose |
 | --- | --- |
 | `POST /v1/agents/register` | Create or refresh an agent; body is the card |
+| `POST /v1/agents` | Pre-register an agent with no session and set its `worker` block (`covey agent add`); *human* |
 | `POST /v1/agents/{slug}/heartbeat` | Update liveness; shim calls it every 20 s while connected |
 | `GET /v1/agents?need=...&capability=...` | Discovery; same ranking as `covey_find` |
 | `POST /v1/requests` | Create a request (`covey_ask`) |

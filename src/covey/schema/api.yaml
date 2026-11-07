@@ -47,6 +47,8 @@ paths:
         Registers the card under its slug. If the slug exists and its holder is `live`,
         the call is refused with 409; otherwise the caller takes the slug over. Every
         successful call mints a new agent token and invalidates the previous one.
+        A takeover keeps the existing `worker` block (register cannot set it) and, when
+        `wakeable` is omitted, the existing `wakeable` value.
       security:
         - joinToken: []
       requestBody:
@@ -115,6 +117,36 @@ paths:
               schema:
                 $ref: "#/components/schemas/FindResult"
         "401": { $ref: "#/components/responses/Unauthorized" }
+    post:
+      tags: [agents]
+      operationId: createAgent
+      summary: Pre-register an agent that has no session yet (covey agent add)
+      description: |
+        Human only, unix socket only. Creates the agent with no token, liveness `wakeable`
+        when `wakeable` is true and `gone` otherwise, or updates the card of an agent that
+        is not `live` (409 `slug_live` if it is). This is the only call that sets the card's
+        `worker` block. `Bash` in `worker.allowed_tools` is refused with 400
+        `tool_not_allowed` until the human-token ancestry check exists. Audited as
+        `agent.created`.
+      security:
+        - humanToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateAgentBody"
+      responses:
+        "201":
+          description: Created or updated; no token is minted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreateAgentResult"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/HumanOnly" }
+        "409": { $ref: "#/components/responses/Conflict" }
 
   /v1/agents/{slug}/card:
     put:
@@ -623,6 +655,11 @@ components:
       enum: [live, wakeable, gone]
 
     RequestStatus:
+      description: |
+        `working` means a headless worker spawned by the daemon has claimed the request;
+        only the daemon sets it. A request still `working` when its worker exits is
+        answered by the daemon from the worker's result. Worker failures use the codes
+        `spawn_budget_exhausted`, `worker_unavailable`, `worker_timeout` and `worker_lost`.
       enum: [queued, awaiting_grant, delivered, working, needs_input, done, failed, refused, expired]
 
     GrantScope:
@@ -648,7 +685,7 @@ components:
           properties:
             code:
               type: string
-              description: Stable machine-readable code, e.g. `slug_live`, `human_only`, `hops_exceeded`.
+              description: Stable machine-readable code, e.g. `slug_live`, `human_only`, `hops_exceeded`, `tool_not_allowed`.
             message:
               type: string
               description: What went wrong, for a person or an agent to read.
@@ -676,7 +713,9 @@ components:
         instructions: { type: string, maxLength: 4000 }
         delivery: { enum: [hooks, webhook, poll, spawn] }
         webhook_url: { type: string, format: uri }
-        wakeable: { type: boolean, default: false }
+        wakeable:
+          type: boolean
+          description: Omitted keeps the existing value on a takeover, and means false for a new agent.
         session_id:
           type: string
           description: The host's session id, if it has one (Claude Code's `session_id`).
@@ -690,6 +729,34 @@ components:
         agent_token:
           type: string
           description: Shown once. The daemon keeps only its hash.
+
+    CreateAgentBody:
+      type: object
+      additionalProperties: false
+      required: [slug, workdir]
+      properties:
+        slug: { $ref: "#/components/schemas/Slug" }
+        kind: { type: string, minLength: 1, maxLength: 64, default: claude-code }
+        workdir: { type: string, minLength: 1, description: Absolute path. }
+        summary: { type: string, maxLength: 1000, default: "" }
+        tags:
+          type: array
+          items: { type: string }
+          default: []
+        capabilities:
+          type: array
+          items: { $ref: "#/components/schemas/Capability" }
+          default: []
+        instructions: { type: string, maxLength: 4000 }
+        wakeable: { type: boolean, default: false }
+        worker: { $ref: "./card.json#/properties/worker" }
+
+    CreateAgentResult:
+      type: object
+      required: [covey, card]
+      properties:
+        covey: { $ref: "#/components/schemas/Version" }
+        card: { $ref: "#/components/schemas/Card" }
 
     HeartbeatResult:
       type: object
@@ -777,7 +844,10 @@ components:
         thread_id: { $ref: "#/components/schemas/Ulid" }
         parent_id:
           $ref: "#/components/schemas/Ulid"
-          description: The request this one continues; its thread and hops are inherited.
+          description: |
+            The request this one continues; its thread and hops are inherited. When a
+            headless worker asks with neither `parent_id` nor `thread_id`, the daemon sets
+            `parent_id` to the request the worker is serving, so hops keep counting.
         timeout_s:
           type: integer
           minimum: 1
@@ -918,7 +988,14 @@ components:
         actor: { $ref: "#/components/schemas/AgentId" }
         event:
           type: string
-          examples: [request.created, grant.created, approval.answered, worker.spawned]
+          examples:
+            - request.created
+            - grant.created
+            - approval.answered
+            - agent.created
+            - worker.spawned
+            - worker.finished
+            - worker.failed
         subject:
           type: [string, "null"]
           description: The id of the request, grant or agent the event is about.

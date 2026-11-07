@@ -16,6 +16,7 @@ BASE = SCHEMA_DIR.as_uri() + "/"
 SPEC = yaml.safe_load((SCHEMA_DIR / "api.yaml").read_text())
 NOT_IMPLEMENTED = {
     "streamEvents",  # SSE moves to the TUI slice
+    "createAgent",  # spawner slice 2 (covey agent add)
 }
 
 
