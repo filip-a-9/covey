@@ -53,6 +53,7 @@ from covey.daemon import (
     waker,
 )
 from covey.daemon.errors import CoveyError
+from covey.text import safe
 
 Transport = Literal["unix", "tcp"]
 
@@ -245,7 +246,7 @@ class Daemon:
         try:
             await wake.post(path, text)
         except OSError as exc:
-            logger.info("wake post to %s failed: %s", agent_id, exc)
+            logger.info("wake post to %s failed: %s", agent_id, safe(exc))
             if self.wake_sockets.get(agent_id) == path:
                 del self.wake_sockets[agent_id]
             return False

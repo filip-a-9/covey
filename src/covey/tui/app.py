@@ -21,6 +21,7 @@ from textual.widgets import Footer, Input, OptionList, RichLog, Static
 from textual.widgets.option_list import Option
 
 from covey.config import Config
+from covey.text import safe
 
 GREEN, AMBER, RED, GREY, BLUE = "#3fb950", "#d9a521", "#f85149", "#8a8a8a", "#58a6ff"
 LIVENESS_COLOUR = {"live": GREEN, "wakeable": AMBER, "gone": GREY}
@@ -75,9 +76,9 @@ def agent_row(card: dict, requests: list[dict]) -> Text:
     line = Text(no_wrap=True, overflow="ellipsis")
     line.append("● ", style=LIVENESS_COLOUR.get(card["liveness"], GREY))
     line.append(card["slug"], style="bold")
-    line.append(f" {card.get('kind', '')[:6]}  ")
+    line.append(f" {safe(card.get('kind', ''))[:6]}  ")
     line.append(f"{inbound}↓ {outbound}↑", style=AMBER if inbound or outbound else "")
-    line.append("\n  " + card.get("summary", ""))
+    line.append("\n  " + safe(card.get("summary", "")))
     return line
 
 
@@ -90,14 +91,14 @@ def request_line(req: dict) -> Text:
     )
     line.append(f"  {req['capability']}  ")
     line.append(f"● {req['status']}", style=colour)
-    line.append(f'  "{req["task"]}"')
+    line.append(f'  "{safe(req["task"])}"')
     return line
 
 
 def reply_line(req: dict) -> Text | None:
     if not req.get("result"):
         return None
-    first = req["result"].strip().splitlines()[0] if req["result"].strip() else ""
+    first = safe(req["result"].strip().splitlines()[0]) if req["result"].strip() else ""
     line = Text(no_wrap=True, overflow="ellipsis")
     line.append(
         f"          ↳ {slug_of(req['to_agent'])}: ",
@@ -115,7 +116,7 @@ def approval_card(req: dict, position: int, total: int) -> Text:
         f"{slug_of(req['from_agent'])} → {slug_of(req['to_agent'])}", style="bold"
     )
     card.append(f"  {req['capability']}\n")
-    card.append(f'"{req["task"]}"\n', style="italic")
+    card.append(f'"{safe(req["task"])}"\n', style="italic")
     for key, scope in SCOPE_KEYS.items():
         card.append(f" {key} ", style=f"bold reverse {RED if key == 'd' else GREEN}")
         card.append(f" {scope}  ")
@@ -177,6 +178,7 @@ class CoveyTop(App):
         self.agents: list[dict] = []
         self.requests: list[dict] = []
         self.pending: list[dict] = []
+        self.shown_approval: str | None = None  # the request id the card is showing
         self.selected = ALL
         self.text_filter = ""
         self.wake = asyncio.Event()
@@ -314,8 +316,10 @@ class CoveyTop(App):
         bar = self.query_one("#approvals", Static)
         bar.set_class(bool(self.pending), "pending")
         if not self.pending:
+            self.shown_approval = None
             bar.update(Text("nothing waiting for you"))
             return
+        self.shown_approval = self.pending[0]["request_id"]
         card = approval_card(self.pending[0], 1, len(self.pending))
         bar.update(card)
 
@@ -352,18 +356,20 @@ class CoveyTop(App):
     async def action_answer(self, scope: str) -> None:
         if (
             self.query_one("#filter", Input).has_focus
-            or not self.pending
+            or not self.shown_approval
             or not self.http
         ):
             return
-        req = self.pending[0]
         r = await self.http.post(
-            f"/v1/approvals/{req['request_id']}", json={"scope": scope}
+            f"/v1/approvals/{self.shown_approval}", json={"scope": scope}
         )
         if r.status_code >= 400:
             message = r.json().get("error", {})
             self.notify(
-                f"{message.get('message', r.reason_phrase)} {message.get('next_step', '')}",
+                safe(
+                    f"{message.get('message', r.reason_phrase)} "
+                    f"{message.get('next_step', '')}"
+                ),
                 severity="error",
             )
         self.wake.set()
@@ -379,11 +385,11 @@ class CoveyTop(App):
         found = await self.get("/v1/log", thread=req["thread_id"])
         lines: list[Text] = []
         for item in found["requests"]:
-            lines += [request_line(item), Text("    task: " + item["task"])]
+            lines += [request_line(item), Text("    task: " + safe(item["task"]))]
             if item.get("context"):
-                lines.append(Text("    context: " + item["context"]))
+                lines.append(Text("    context: " + safe(item["context"])))
             if item.get("result"):
-                lines.append(Text("    result: " + item["result"]))
+                lines.append(Text("    result: " + safe(item["result"])))
             lines.append(Text(""))
         self.push_screen(TextScreen(f"thread {req['thread_id']}", lines))
 
@@ -403,7 +409,7 @@ class CoveyTop(App):
         lines = [
             Text(
                 f"{clock(e['ts'])}  {slug_of(e['actor'])}  {e['event']}  "
-                f"{e.get('subject') or ''}  {json.dumps(e.get('detail') or {})}"
+                f"{e.get('subject') or ''}  {safe(json.dumps(e.get('detail') or {}))}"
             )
             for e in found["events"]
         ]

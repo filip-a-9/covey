@@ -16,6 +16,7 @@ from covey.cli.hook import hook_app
 from covey.cli.init import init as init_command
 from covey.config import Config, ConfigError
 from covey.launch import LaunchError, ensure_daemon, pid_alive, read_pid
+from covey.text import safe
 
 app = typer.Typer(
     help="Covey: a local agent mesh.", no_args_is_help=True, add_completion=False
@@ -202,12 +203,12 @@ DETAIL_KEYS = ("scope", "code", "reason")
 
 def event_detail(event: dict[str, Any]) -> str:
     detail = event.get("detail") or {}
-    return "  ".join(f"{k}={detail[k]}" for k in DETAIL_KEYS if k in detail)
+    return "  ".join(f"{k}={safe(detail[k])}" for k in DETAIL_KEYS if k in detail)
 
 
 def format_event(event: dict[str, Any]) -> str:
     """`HH:MM:SS  event  actor  k=v`: one audit row, the way `covey log` shows it."""
-    parts = [event["ts"][11:19], event["event"], slug(event["actor"])]
+    parts = [event["ts"][11:19], safe(event["event"]), safe(slug(event["actor"]))]
     return "  ".join(p for p in [*parts, event_detail(event)] if p)
 
 
@@ -215,13 +216,15 @@ def format_follow(event: dict[str, Any], request: dict[str, Any]) -> list[str]:
     """The lines `covey log --follow` prints for one new audit row about `request`."""
     head = (
         f"{event['ts'][11:19]}  {request['thread_id'][-6:]}  "
-        f"{slug(request['from_agent'])} -> {slug(request['to_agent'])}  {event['event']}"
+        f"{safe(slug(request['from_agent']))} -> {safe(slug(request['to_agent']))}"
+        f"  {safe(event['event'])}"
     )
     if event["event"] == "request.created":
-        return [f"{head}  {request['task']}"]
+        return [f"{head}  {safe(request['task'])}"]
     if event["event"] == "request.replied":
         lines = [f"{head}  {request['status']}"]
-        return lines + ([f"    {request['result']}"] if request.get("result") else [])
+        result = request.get("result")
+        return lines + ([f"    {safe(result)}"] if result else [])
     detail = event_detail(event)
     return [f"{head}  {detail}" if detail else head]
 
@@ -246,13 +249,13 @@ def format_log(payload: dict[str, Any]) -> str:
             clock = r["created_at"][11:19]
             lines.append(
                 f"{clock}  {slug(r['from_agent'])} -> {slug(r['to_agent'])}  "
-                f"{r['capability']}  {r['status']}  {r['task']}"
+                f"{r['capability']}  {r['status']}  {safe(r['task'])}"
             )
             lines += [
                 f"    {format_event(e)}" for e in by_request.get(r["request_id"], [])
             ]
             if r.get("result"):
-                lines.append(f"    {r['result']}")
+                lines.append(f"    {safe(r['result'])}")
         blocks.append("\n".join(lines))
     return "\n\n".join(blocks)
 

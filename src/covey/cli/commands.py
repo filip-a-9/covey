@@ -19,6 +19,7 @@ from covey.cli import JsonOpt, app, fail, load_cfg, out, probe, slug, whoami
 from covey.cli.client import human_client
 from covey.cli.init import HOOKS, hook_runs, is_covey_hook
 from covey.launch import daemon_answers
+from covey.text import safe
 
 FINAL = ("done", "failed", "refused", "expired")
 
@@ -42,13 +43,14 @@ def call(
     if r.status_code >= 400:
         err = body.get("error", {})
         message = f"{err.get('message', r.text)} {err.get('next_step', '')}".strip()
-        raise fail(as_json, message, code=err.get("code"))
+        raise fail(as_json, message if as_json else safe(message), code=err.get("code"))
     return body
 
 
 def table(rows: list[list[str]], empty: str) -> str:
     if not rows:
         return empty
+    rows = [[safe(cell) for cell in r] for r in rows]
     widths = [max(len(r[i]) for r in rows) for i in range(len(rows[0]))]
     return "\n".join(
         "  ".join(cell.ljust(w) for cell, w in zip(r, widths, strict=True)).rstrip()
@@ -310,7 +312,7 @@ def ask(
         req = payload["request"]
     text = f"{req['request_id']}  {req['status']}"
     if req.get("result"):
-        text += f"\n{req['result']}"
+        text += f"\n{safe(req['result'])}"
     out(as_json, payload, text)
     if wait and req["status"] != "done":
         hint = (
@@ -371,10 +373,15 @@ def approve(
     payload = call(
         as_json, "POST", f"/v1/approvals/{request_id}", json={"scope": scope}
     )
+    req = payload["request"]
+    what = safe(
+        f"{slug(req['from_agent'])} -> {slug(req['to_agent'])} {req['capability']}"
+    )
     out(
         as_json,
         payload,
-        f"Approved ({scope}). Request is {payload['request']['status']}.",
+        f"Approved ({scope}): {what}: {safe(req['task'], 80)}\n"
+        f"Request is {req['status']}.",
     )
 
 

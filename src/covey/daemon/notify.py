@@ -13,6 +13,8 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from covey.text import safe
+
 logger = logging.getLogger("covey.notify")
 
 OSRELEASE = Path("/proc/sys/kernel/osrelease")
@@ -146,6 +148,7 @@ def _deliver(backend: Backend, text: str) -> None:
 def human(text: str) -> None:
     """Log `text` and, if a backend works, show it on the desktop. Never blocks."""
     global _backend, _resolved
+    text = safe(text)  # agent-written workdirs and paths reach coveyd.log and the toast
     logger.warning("%s", text)
     with _lock:
         if not _resolved:
