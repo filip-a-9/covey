@@ -123,6 +123,12 @@ def use_backend(backend: Backend | None) -> None:
 
 
 def reset() -> None:
+    """Back to the defaults; a worker left from before must finish first, or it would
+    pick up the next notification and hand it to the old backend."""
+    drain()
+    with _lock:
+        global _waiting, _first_waiting, _worker
+        _waiting, _first_waiting, _worker = 0, "", None
     configure("auto")
 
 
