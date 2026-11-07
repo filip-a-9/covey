@@ -28,7 +28,8 @@ def peer_pid(sock: socket.socket | None) -> int | None:
             raw = sock.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, 12)
             return struct.unpack("3i", raw)[0]
         if sys.platform == "darwin":
-            return sock.getsockopt(0, 0x002, 4)  # SOL_LOCAL, LOCAL_PEERPID
+            # SOL_LOCAL, LOCAL_PEERPID. No buffer length: with one, Python returns raw bytes.
+            return sock.getsockopt(0, 0x002)
     except OSError:
         return None
     return None

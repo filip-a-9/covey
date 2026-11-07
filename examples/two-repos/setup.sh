@@ -152,7 +152,8 @@ open("test_orders.py", "w").write(t)
 EOF
   commit 6 "Validate order quantity"
 
-  sed -i 's/ORDERS.append(payload)/ORDERS.append(payload)  # in memory only; no database yet/' server.py
+  # -i.bak, not -i: BSD sed on macOS needs a suffix argument.
+  sed -i.bak 's/ORDERS.append(payload)/ORDERS.append(payload)  # in memory only; no database yet/' server.py && rm server.py.bak
   printf '__pycache__/\n.claude/\n.mcp.json\n' > .gitignore
   commit 4 "Ignore caches and local tooling files"
 
