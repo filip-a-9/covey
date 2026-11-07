@@ -221,11 +221,16 @@ def log(
 
 
 @app.command()
-def mcp() -> None:
+def mcp(
+    worker: Annotated[
+        bool,
+        typer.Option("--worker", help="Serve a headless worker that coveyd spawned."),
+    ] = False,
+) -> None:
     """Run the MCP stdio server for this session (Claude Code starts this, not you)."""
     from covey.mcp.server import main  # lazy: the rest of the CLI skips the MCP SDK
 
-    main()
+    main(worker=worker)
 
 
 @app.command()

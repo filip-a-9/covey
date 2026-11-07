@@ -450,7 +450,7 @@ Core first because everything else is a client of it; the shim and hooks start o
 
 1. How reliably does a `Stop` hook `block` wake a session that the user has walked away from, and does it count against anything? Measure on a real session for an afternoon.
 2. ~~Does `PostToolUse` `additionalContext` land in the model's context?~~ Yes on Claude Code 2.1.319 (fixtures in `tests/fixtures/hooks/`). The hook fires after built-in tools such as `ToolSearch` too, so it adds its note only when the inbox has something waiting.
-3. Is `claude -p` with an MCP server configured fast enough to start that a spawned worker answers a simple `explain` request in under 20 seconds? If not, keep a warm worker per wakeable agent.
+3. ~~Is `claude -p` with an MCP server configured fast enough to start that a spawned worker answers a simple `explain` request in under 20 seconds?~~ Yes on Claude Code 2.1.319: about 8 s (see "How workers run"), so no warm worker.
 4. Ranking: does token overlap find the right agent among eight realistic cards? Write eight cards and twenty queries before writing the ranker.
 
 **How hooks authenticate (decided after the week-one experiment, Claude Code 2.1.319).** Evidence, recorded in `tests/fixtures/hooks/`: the MCP server's environment carries `CLAUDE_CODE_SESSION_ID`, equal to the `session_id` hooks receive on stdin, but `/clear` issues a new `session_id` (a `SessionEnd` with `reason: clear`, then a `SessionStart` with `source: clear`) without restarting the MCP server, so the shim's copy goes stale. The `claude` process survives `/clear`: it is the MCP server's parent and hooks receive its pid as `CLAUDE_PID`. So:
@@ -460,6 +460,19 @@ Core first because everything else is a client of it; the shim and hooks start o
 - Hooks read `$CLAUDE_PID`, open that file, check the start time, and act with the agent token. No file means no shim (yet: at startup `SessionStart` runs before the MCP server), and the hook exits quietly.
 - The shim registers with its environment's `session_id`. `SessionStart` reports the current one, so `session` grants still end when a session ends. That report needs a contract change (an agent-token way to set `session_id`), made in its own schema commit with the hooks slice.
 - Not yet observed: `--resume` and macOS (where the start time comes from `ps -o lstart=` instead of `/proc`). Check both before the hooks slice ships.
+
+**How workers run (decided after the spawner spike, Claude Code 2.1.319).** Evidence, recorded in `tests/fixtures/worker/`: `claude -p --output-format json` reads the task from stdin and prints one JSON object. That object always has `subtype`, `is_error`, `session_id`, `total_cost_usd`, `num_turns` and `duration_ms`, and has `result` only when `subtype` is `success`. So:
+
+- The daemon runs `claude` with `cwd=workdir` and `start_new_session=True`, and these flags:
+  - `--restricted`: auth and the workdir's `CLAUDE.md` still work, but user and project settings and hooks are ignored.
+  - `--strict-mcp-config` with a 0600 `mcp.json` that starts `covey mcp --worker`. That file carries the agent's slug and a worker token the daemon keeps only in memory, so the worker never registers and the agent stays `wakeable`.
+  - `--permission-prompts none`, `--max-turns` and `--max-budget-usd`.
+  - `--model` from `COVEY_WORKER_MODEL`, default `sonnet`. On the default model, three turns cost $0.19.
+- Tools missing from `--tools` do not exist for the model. Tools in `--tools` but not in `--allowedTools` are denied when they would prompt, but read-only Bash commands run anyway. So Bash stays out of `--tools` until the trust slice allows it.
+- A denial does not fail the run. The run still ends `success`, and the denied calls are listed in `permission_denials`, which the daemon copies into the `worker.finished` audit row.
+- Spend is bounded by `--max-budget-usd`, which is checked between turns and can overshoot by one turn, and by a wall-clock kill at the request's deadline or 600 s, whichever comes first. A run that ends without calling `covey_reply` is answered by the daemon: `done` with `result` on success (through the normal reply path, so the grant is re-checked), otherwise `failed` with `worker_<subtype>`. A missing `result` is never treated as `done`.
+- A trivial run with the MCP server takes about 8 s, which answers open question 3 (under 20 s). One real run against a scratch repo answered correctly in 5.8 s for $0.017.
+- Not yet observed: `--max-turns` being enforced, and workers on macOS.
 
 **Decisions still yours** (the plan assumes the first option in each):
 

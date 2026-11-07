@@ -75,6 +75,7 @@ class Shim:
         identity_error: IdentityError | None = None,
         start_daemon: bool = True,
         heartbeat_s: float = 20.0,
+        worker_token: str | None = None,
     ):
         self.cfg = cfg
         self.slug = slug
@@ -84,6 +85,10 @@ class Shim:
         self.identity_error = identity_error
         self.start_daemon = start_daemon
         self.heartbeat_s = heartbeat_s
+        # A headless worker acts with the token the daemon gave it: no register, heartbeat,
+        # session or session file (SPEC "Delivery", path 3).
+        self.worker_token = worker_token
+        self.worker_revoked = False
         self.client = AgentClient(cfg)
         self.token: str | None = None
         self.problem: DaemonError | None = None
@@ -95,6 +100,21 @@ class Shim:
             if self.token is not None and self.token != stale:
                 return  # a parallel call or the heartbeat already re-registered
             self.token, self.problem = None, None
+            if self.worker_token is not None:
+                if (
+                    stale is not None
+                ):  # the daemon refused it: the worker's request is over
+                    self.worker_revoked = True
+                if not self.worker_revoked:
+                    self.token = self.worker_token
+                else:
+                    self.problem = DaemonError(
+                        401,
+                        "worker_token",
+                        "This worker's token is no longer valid; its request has ended.",
+                        "Stop: finish your answer without calling covey tools.",
+                    )
+                return
             if self.identity_error is not None:
                 self.problem = DaemonError(
                     0,
@@ -144,7 +164,7 @@ class Shim:
     async def end_session(self) -> None:
         """Best effort on shutdown: tell the daemon this session is over, before the file
         goes, so the SessionEnd hook finding no file does not leave the agent live."""
-        if self.token is None:
+        if self.token is None or self.worker_token is not None:
             return
         try:
             await self.client.call(
@@ -201,6 +221,8 @@ class Shim:
 
     async def run_background(self) -> None:
         """Register (without holding up the MCP handshake), then heartbeat forever."""
+        if self.worker_token is not None:
+            return
         await self.register()
         while True:
             await asyncio.sleep(self.heartbeat_s)
@@ -528,8 +550,9 @@ def build_server(shim: Shim) -> MCPServer:
     return mcp
 
 
-def main() -> None:
-    """Entry point for `covey mcp`: identity from the environment, then serve on stdio."""
+def main(worker: bool = False) -> None:
+    """Entry point for `covey mcp`: identity from the environment, then serve on stdio.
+    With `worker`, act as a headless worker the daemon spawned, with COVEY_WORKER_TOKEN."""
     cfg = config_module.load()
     cwd = Path.cwd()
     identity_error = None
@@ -537,12 +560,29 @@ def main() -> None:
         slug = derive_slug(os.environ, cwd)
     except IdentityError as exc:
         slug, identity_error = "", exc  # every tool reports it with the fix
+    if not worker:
+        shim = Shim(
+            cfg,
+            slug=slug,
+            workdir=str(cwd),
+            identity_error=identity_error,
+            session_id=os.environ.get("CLAUDE_CODE_SESSION_ID"),
+            claude=find_claude(os.getppid()),
+        )
+        build_server(shim).run("stdio")
+        return
+    token = os.environ.get("COVEY_WORKER_TOKEN", "")
+    if not token and identity_error is None:
+        identity_error = IdentityError(
+            "`covey mcp --worker` needs COVEY_WORKER_TOKEN; only coveyd starts workers.",
+            "Use plain `covey mcp` in an interactive session.",
+        )
     shim = Shim(
         cfg,
         slug=slug,
         workdir=str(cwd),
         identity_error=identity_error,
-        session_id=os.environ.get("CLAUDE_CODE_SESSION_ID"),
-        claude=find_claude(os.getppid()),
+        start_daemon=False,
+        worker_token=None if identity_error else token,
     )
     build_server(shim).run("stdio")

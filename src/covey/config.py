@@ -3,6 +3,9 @@
 Environment variables:
     COVEY_HOME  directory for the database, tokens, socket, pidfile and log (default ~/.covey)
     COVEY_PORT  TCP port on 127.0.0.1 (default 7777)
+    COVEY_CLAUDE        the `claude` executable headless workers run (default `claude` on PATH)
+    COVEY_WORKER_MODEL  model for headless workers (default `sonnet`: the default model can
+                        spend more than a worker's budget in its first turns)
 """
 
 import os
@@ -22,6 +25,12 @@ class Config:
     liveness_timeout_s: float = 60.0
     sweep_interval_s: float = 5.0
     max_hops: int = 4
+    claude_bin: str = "claude"
+    worker_model: str = "sonnet"
+    max_workers: int = 2  # headless workers running at once, across all agents
+    worker_timeout_s: float = (
+        600.0  # wall-clock kill, or the request deadline if sooner
+    )
 
     @property
     def db_path(self) -> Path:
@@ -51,6 +60,10 @@ class Config:
     def log_path(self) -> Path:
         return self.home / "coveyd.log"
 
+    @property
+    def workers_path(self) -> Path:
+        return self.home / "workers"
+
 
 def load(env: Mapping[str, str] | None = None) -> Config:
     env = os.environ if env is None else env
@@ -64,4 +77,9 @@ def load(env: Mapping[str, str] | None = None) -> Config:
         raise ConfigError(
             f"COVEY_PORT={raw_port!r} is not a TCP port. Set it to a number between 1 and 65535."
         )
-    return Config(home=home, port=port)
+    return Config(
+        home=home,
+        port=port,
+        claude_bin=env.get("COVEY_CLAUDE") or "claude",
+        worker_model=env.get("COVEY_WORKER_MODEL") or "sonnet",
+    )

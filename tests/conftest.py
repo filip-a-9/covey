@@ -9,9 +9,20 @@ from covey.config import Config
 from covey.daemon import store
 
 
+@pytest.fixture(autouse=True)
+def no_real_claude(monkeypatch):
+    """Daemons started from the environment (`covey up` in a subprocess) cannot reach the
+    installed `claude` either: a spawned worker would cost money."""
+    monkeypatch.setenv("COVEY_CLAUDE", "/nonexistent/claude-is-disabled-in-tests")
+
+
 @pytest.fixture
 def cfg(tmp_path) -> Config:
-    return Config(home=tmp_path / "home", port=7777)
+    return Config(
+        home=tmp_path / "home",
+        port=7777,
+        claude_bin="/nonexistent/claude-is-disabled-in-tests",  # never the real one
+    )
 
 
 @pytest.fixture

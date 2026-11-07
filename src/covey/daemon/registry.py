@@ -130,13 +130,7 @@ def _validate(card: dict[str, Any]) -> None:
         )
 
 
-def register(
-    conn: sqlite3.Connection, node_id: str, body: dict[str, Any]
-) -> tuple[dict[str, Any], str]:
-    """Register or take over a slug. Returns (card, agent_token). Audits `agent.registered`
-    (never with the token). `body` is a RegisterBody; `session_id` goes to the column, not
-    the card."""
-    slug = body.get("slug", "")
+def _check_not_reserved(slug: str) -> None:
     if slug in store.RESERVED_SLUGS:
         raise CoveyError(
             409,
@@ -144,6 +138,101 @@ def register(
             f"The slug {slug!r} is reserved for covey itself.",
             "Pick another slug.",
         )
+
+
+def _existing_not_live(conn: sqlite3.Connection, slug: str) -> sqlite3.Row | None:
+    """The agents row for `slug` if any; 409 `slug_live` if its holder is live."""
+    row = conn.execute("SELECT * FROM agents WHERE slug = ?", (slug,)).fetchone()
+    if row is not None and row["liveness"] == "live":
+        raise CoveyError(
+            409,
+            "slug_live",
+            f"An agent named {slug!r} is live on this node.",
+            "Pick another slug, or wait for the other session to end.",
+        )
+    return row
+
+
+def _refuse_shell_tools(worker: dict[str, Any]) -> None:
+    for tool in worker.get("allowed_tools", []):
+        if tool == "Bash" or tool.startswith("Bash("):
+            raise CoveyError(
+                400,
+                "tool_not_allowed",
+                f"Workers cannot have {tool!r} yet: covey cannot yet check that the human"
+                " token is used only by the human, so a worker with a shell could grant"
+                " itself anything.",
+                "Leave Bash out of --allowed-tools until the trust slice adds that check.",
+            )
+
+
+def create_agent(
+    conn: sqlite3.Connection, node_id: str, body: dict[str, Any]
+) -> dict[str, Any]:
+    """Pre-register an agent with no session (covey agent add), or update the card of one
+    that is not live. Mints no token and keeps an existing one. Liveness is `wakeable` or
+    `gone` by `body["wakeable"]`. The only way to set the card's `worker` block. Audits
+    `agent.created` as the human. `body` is a CreateAgentBody."""
+    slug = body.get("slug", "")
+    _check_not_reserved(slug)
+    _refuse_shell_tools(body.get("worker") or {})
+    agent_id = f"{slug}@{node_id}"
+    now = store.now_iso()
+    wakeable = bool(body.get("wakeable", False))
+    liveness = "wakeable" if wakeable else "gone"
+    card: dict[str, Any] = {
+        "covey": "1",
+        "agent_id": agent_id,
+        "slug": slug,
+        "kind": body.get("kind", "claude-code"),
+        "summary": body.get("summary", ""),
+        "tags": body.get("tags", []),
+        "capabilities": body.get("capabilities", []),
+        # Nothing is attached yet; a session that takes the slug over sets its own.
+        "delivery": "spawn" if wakeable else "poll",
+        "wakeable": wakeable,
+        "liveness": liveness,
+        "last_seen": now,
+        "public_key": None,
+        "workdir": body.get("workdir"),
+    }
+    for optional in ("instructions", "worker"):
+        if optional in body:
+            card[optional] = body[optional]
+    _validate(card)
+
+    with store.transaction(conn):
+        row = _existing_not_live(conn, slug)
+        if row is None:
+            conn.execute(
+                "INSERT INTO agents (agent_id, slug, node_id, card, liveness, last_seen)"
+                " VALUES (?, ?, ?, ?, ?, ?)",
+                (agent_id, slug, node_id, json.dumps(card), liveness, now),
+            )
+        else:
+            card["last_seen"] = row["last_seen"]
+            conn.execute(
+                "UPDATE agents SET card = ?, liveness = ? WHERE slug = ?",
+                (json.dumps(card), liveness, slug),
+            )
+        store.audit(
+            conn,
+            f"human@{node_id}",
+            "agent.created",
+            agent_id,
+            {"wakeable": wakeable, "update": row is not None},
+        )
+    return card
+
+
+def register(
+    conn: sqlite3.Connection, node_id: str, body: dict[str, Any]
+) -> tuple[dict[str, Any], str]:
+    """Register or take over a slug. Returns (card, agent_token). Audits `agent.registered`
+    (never with the token). `body` is a RegisterBody; `session_id` goes to the column, not
+    the card."""
+    slug = body.get("slug", "")
+    _check_not_reserved(slug)
     agent_id = f"{slug}@{node_id}"
     now = store.now_iso()
     card: dict[str, Any] = {
@@ -155,7 +244,7 @@ def register(
         "tags": body.get("tags", []),
         "capabilities": body.get("capabilities", []),
         "delivery": body.get("delivery"),
-        "wakeable": body.get("wakeable", False),
+        "wakeable": body.get("wakeable"),
         "liveness": "live",
         "last_seen": now,
         "public_key": None,
@@ -163,22 +252,20 @@ def register(
     for optional in ("workdir", "instructions", "webhook_url"):
         if optional in body:
             card[optional] = body[optional]
-    _validate(card)
 
     token = secrets.token_urlsafe(32)
     token_hash = store.hash_token(token)
     session_id = body.get("session_id")
     with store.transaction(conn):
-        row = conn.execute(
-            "SELECT liveness FROM agents WHERE slug = ?", (slug,)
-        ).fetchone()
-        if row is not None and row["liveness"] == "live":
-            raise CoveyError(
-                409,
-                "slug_live",
-                f"An agent named {slug!r} is live on this node.",
-                "Pick another slug, or wait for the other session to end.",
-            )
+        row = _existing_not_live(conn, slug)
+        # A takeover keeps what only the human sets: the worker block, and wakeable
+        # unless the body says otherwise (covey agent add, SPEC "Delivery").
+        old = json.loads(row["card"]) if row is not None else {}
+        if card["wakeable"] is None:
+            card["wakeable"] = old.get("wakeable", False)
+        if "worker" in old:
+            card["worker"] = old["worker"]
+        _validate(card)
         if row is None:
             conn.execute(
                 "INSERT INTO agents (agent_id, slug, node_id, card, liveness, last_seen,"

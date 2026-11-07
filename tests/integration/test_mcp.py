@@ -372,3 +372,38 @@ async def test_closing_the_shims_stdin_detaches_the_session_at_once(daemon, tmp_
         assert row() == ("live", "sess-1")
     # leaving the context closed stdin and waited for the shim to exit
     assert row() == ("gone", "")
+
+
+async def test_a_worker_shim_never_registers_or_heartbeats(daemon):
+    async with shim_client(
+        daemon.cfg, "docs", worker_token="not-a-live-worker-token", heartbeat_s=0.05
+    ) as docs:
+        await asyncio.sleep(0.3)  # several heartbeat periods
+        err, text, _ = await call(docs, "covey_whoami")
+    assert err and "worker" in text.lower()
+    with human(daemon) as h:
+        assert h.get("/v1/agents").json()["matches"] == []
+
+
+async def test_covey_mcp_worker_without_its_token_says_what_is_missing(
+    daemon, tmp_path
+):
+    from pathlib import Path
+
+    from mcp import StdioServerParameters
+
+    params = StdioServerParameters(
+        command=str(Path(sys.executable).parent / "covey"),
+        args=["mcp", "--worker"],
+        env={
+            "COVEY_HOME": str(daemon.cfg.home),
+            "COVEY_PORT": str(daemon.cfg.port),
+            "COVEY_AGENT": "docs",
+        },
+        cwd=tmp_path,
+    )
+    async with Client(params) as client:
+        err, text, _ = await call(client, "covey_whoami")
+    assert err and "COVEY_WORKER_TOKEN" in text
+    with human(daemon) as h:
+        assert h.get("/v1/agents").json()["matches"] == []

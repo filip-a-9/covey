@@ -1,0 +1,1 @@
+{"mcpServers":{"covey":{"command":"/projects/covey/.venv/bin/python","args":["-c","from covey.cli import app; app()","mcp"],"env":{"COVEY_HOME":"/SCRATCH/home"}}}}

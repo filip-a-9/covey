@@ -238,3 +238,57 @@ def test_doctor_flags_a_port_held_by_something_else(env, daemon, tmp_path, monke
         _, checks = doctor()
     assert checks["port"]["ok"] is False
     assert checks["port"]["fix"]
+
+
+# ------------------------------------------------------- covey agent add
+
+
+def test_agent_add_pre_registers_a_wakeable_agent(env, tmp_path):
+    data = cli_json(
+        "agent",
+        "add",
+        "docs",
+        "--workdir",
+        str(tmp_path),
+        "--wakeable",
+        "--allowed-tools",
+        "Read,Edit",
+        "--max-turns",
+        "4",
+        "--daily-spawns",
+        "3",
+    )
+    card = data["card"]
+    assert card["liveness"] == "wakeable"
+    assert card["workdir"] == str(tmp_path)
+    assert card["worker"] == {
+        "allowed_tools": ["Read", "Edit"],
+        "max_turns": 4,
+        "daily_spawns": 3,
+    }
+    assert [a["slug"] for a in cli_json("ps")["agents"]] == ["docs"]
+
+
+def test_agent_add_resolves_a_relative_workdir(env, tmp_path, monkeypatch):
+    (tmp_path / "repo").mkdir()
+    monkeypatch.chdir(tmp_path)
+    card = cli_json("agent", "add", "docs", "--workdir", "repo")["card"]
+    assert card["workdir"] == str(tmp_path / "repo")
+
+
+def test_agent_add_missing_workdir_fails(env, tmp_path):
+    cli("agent", "add", "docs", "--workdir", str(tmp_path / "nope"), expect=1)
+
+
+def test_agent_add_with_bash_fails_with_the_daemons_reason(env, tmp_path):
+    data = cli_json(
+        "agent",
+        "add",
+        "docs",
+        "--workdir",
+        str(tmp_path),
+        "--allowed-tools",
+        "Bash",
+        expect=1,
+    )
+    assert data["code"] == "tool_not_allowed"

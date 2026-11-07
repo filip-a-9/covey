@@ -113,6 +113,73 @@ def find(
     out(as_json, payload, text if matches else "No agent matches. Run `covey ps`.")
 
 
+agent_app = typer.Typer(
+    help="Manage agents that have no session.", no_args_is_help=True
+)
+app.add_typer(agent_app, name="agent")
+
+
+def csv(value: str) -> list[str]:
+    return [v.strip() for v in value.split(",") if v.strip()]
+
+
+@agent_app.command("add")
+def agent_add(
+    agent: Annotated[str, typer.Argument(help="Agent slug.")],
+    workdir: Annotated[
+        Path, typer.Option(help="The agent's repo; a worker runs here.")
+    ] = Path("."),
+    wakeable: Annotated[
+        bool, typer.Option("--wakeable", help="Spawn a headless worker when asked.")
+    ] = False,
+    kind: Annotated[str, typer.Option(help="Agent kind.")] = "claude-code",
+    summary: Annotated[str | None, typer.Option(help="What the agent does.")] = None,
+    tags: Annotated[str | None, typer.Option(help="Comma-separated tags.")] = None,
+    allowed_tools: Annotated[
+        str | None,
+        typer.Option(help="Comma-separated Claude Code tools for the worker."),
+    ] = None,
+    max_turns: Annotated[
+        int | None, typer.Option(help="Turn cap for one worker run.")
+    ] = None,
+    max_budget_usd: Annotated[
+        float | None, typer.Option(help="Spend cap in USD for one worker run.")
+    ] = None,
+    daily_spawns: Annotated[
+        int | None, typer.Option(help="Most workers in any rolling 24 hours.")
+    ] = None,
+    as_json: JsonOpt = False,
+) -> None:
+    """Pre-register an agent with no session, or update one that is not live."""
+    path = workdir.expanduser().resolve()
+    if not path.is_dir():
+        raise fail(
+            as_json, f"{path} is not a directory. Pass the agent's repo as --workdir."
+        )
+    body: dict[str, Any] = {
+        "slug": agent,
+        "kind": kind,
+        "workdir": str(path),
+        "wakeable": wakeable,
+    }
+    if summary is not None:
+        body["summary"] = summary
+    if tags is not None:
+        body["tags"] = csv(tags)
+    worker = {
+        "allowed_tools": csv(allowed_tools) if allowed_tools is not None else None,
+        "max_turns": max_turns,
+        "max_budget_usd": max_budget_usd,
+        "daily_spawns": daily_spawns,
+    }
+    worker = {k: v for k, v in worker.items() if v is not None}
+    if worker:
+        body["worker"] = worker
+    payload = call(as_json, "POST", "/v1/agents", json=body)
+    card = payload["card"]
+    out(as_json, payload, f"Added {agent} ({card['liveness']}) in {path}.")
+
+
 @app.command()
 def inbox(
     agent: Annotated[str, typer.Argument(help="Agent slug.")],

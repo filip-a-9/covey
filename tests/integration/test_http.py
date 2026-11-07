@@ -468,3 +468,59 @@ def test_plain_agent_list_returns_all_agents_beyond_default_limit(tcp, daemon, w
     assert len(r.json()["matches"]) == 8
     limited = tcp.get("/v1/agents", params={"need": "agent", "limit": 2}, headers=web)
     assert len(limited.json()["matches"]) <= 2
+
+
+# ------------------------------------------------------- createAgent
+
+
+def test_human_pre_registers_a_wakeable_agent(human):
+    body = {
+        "slug": "docs",
+        "workdir": "/srv/docs",
+        "wakeable": True,
+        "worker": {"allowed_tools": ["Read"], "max_turns": 4},
+    }
+    r = human.post("/v1/agents", json=body)
+    assert r.status_code == 201, r.text
+    card = r.json()["card"]
+    assert (card["liveness"], card["worker"]["max_turns"]) == ("wakeable", 4)
+    assert "agent_token" not in r.json()
+
+
+def test_create_agent_is_human_only(tcp, daemon, web):
+    body = {"slug": "docs", "workdir": "/srv/docs"}
+    for headers in (web, auth(daemon.join_token)):
+        r = tcp.post("/v1/agents", json=body, headers=headers)
+        assert r.status_code == 403, r.text
+
+
+def test_create_agent_refuses_bash_and_unknown_fields(human):
+    bash = {"slug": "docs", "workdir": "/x", "worker": {"allowed_tools": ["Bash"]}}
+    r = human.post("/v1/agents", json=bash)
+    assert (r.status_code, r.json()["error"]["code"]) == (400, "tool_not_allowed")
+    extra = {"slug": "docs", "workdir": "/x", "token": "t"}
+    assert human.post("/v1/agents", json=extra).status_code == 400
+
+
+def test_create_agent_on_a_live_slug_is_409(human, web):
+    r = human.post("/v1/agents", json={"slug": "web", "workdir": "/x"})
+    assert (r.status_code, r.json()["error"]["code"]) == (409, "slug_live")
+
+
+def test_register_takeover_keeps_wakeable_and_worker(tcp, human, daemon):
+    human.post(
+        "/v1/agents",
+        json={
+            "slug": "docs",
+            "workdir": "/x",
+            "wakeable": True,
+            "worker": {"max_turns": 2},
+        },
+    )
+    r = tcp.post(
+        "/v1/agents/register",
+        json={"slug": "docs", "kind": "claude-code", "delivery": "hooks"},
+        headers=auth(daemon.join_token),
+    )
+    card = r.json()["card"]
+    assert (card["wakeable"], card["worker"]) == (True, {"max_turns": 2})

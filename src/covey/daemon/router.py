@@ -14,7 +14,8 @@ Decisions for this slice (see .claude/specs/core-daemon.md):
 - A `gone` target is refused with 422 `target_unreachable`.
 - `forbidden` -> created with status `refused`; a `deny` grant -> `refused`;
   `ask` -> `awaiting_grant`; `allow` -> `queued`.
-- Reading the inbox moves `queued` to `delivered`. `working` is unused in this slice.
+- Reading the inbox moves `queued` to `delivered`. `working` means a headless worker the
+  daemon spawned has claimed the request (waker.py); only the daemon sets it.
 - A `once` grant is checked at creation and consumed at a successful final reply
   (done/failed). While one request holds it (open and not awaiting a grant), further
   matching requests land in `awaiting_grant`: one in flight per grant. Every reply to a non-open capability re-checks the grant first; if it no
@@ -433,6 +434,49 @@ def reply(
             "Do not act on the task; ask the human for a new grant if it is still wanted.",
         )
     return get_request(conn, request_id)
+
+
+def claim_for_worker(conn: sqlite3.Connection, request_id: str, actor: str) -> bool:
+    """`queued` -> `working` for a spawned worker; stamps `stop_blocked_at` so a session that
+    attaches mid-run is never handed it by stop-claim. Audits `worker.spawned` (the spawn
+    budget counts these rows). False if the request is no longer queued."""
+    with store.transaction(conn):
+        req = get_request(conn, request_id)
+        if req["status"] != "queued":
+            return False
+        conn.execute(
+            "UPDATE requests SET stop_blocked_at = ? WHERE request_id = ?",
+            (store.now_iso(), request_id),
+        )
+        _set_status(conn, request_id, "working")
+        store.audit(
+            conn, actor, "worker.spawned", request_id, {"agent": req["to_agent"]}
+        )
+    return True
+
+
+def fail_open(
+    conn: sqlite3.Connection,
+    request_id: str,
+    code: str,
+    actor: str,
+    detail: dict[str, Any] | None = None,
+) -> bool:
+    """A worker could not serve the request: `queued`/`working` -> `failed` with `code` as
+    the result, audited `worker.failed`. No grant is consumed. False if it had moved on."""
+    with store.transaction(conn):
+        req = get_request(conn, request_id)
+        if req["status"] not in ("queued", "working"):
+            return False
+        _set_status(conn, request_id, "failed", code)
+        store.audit(
+            conn,
+            actor,
+            "worker.failed",
+            request_id,
+            {"agent": req["to_agent"], "code": code, **(detail or {})},
+        )
+    return True
 
 
 def pending_approvals(conn: sqlite3.Connection) -> list[dict[str, Any]]:

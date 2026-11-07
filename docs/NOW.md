@@ -1,42 +1,59 @@
 # Now
 
-**Current slice:** hooks, merged to `main` but not yet checked on a real session. Next: the real-session check below,
-then the spawner (`.claude/specs/spawner.md`, has open questions).
+**Current slice:** spawner, done (`.claude/specs/spawner.md`). A `wakeable` agent with no session is served
+by a headless `claude -p` worker; spawn budget, concurrency and timeout are enforced. Next: the trust slice
+(ancestry check, desktop notifications behind `notify_human`, then Bash for workers).
 
-**Done:** schemas; `coveyd` serving every `api.yaml` operation except `/v1/events`; `covey up/down/status/log`;
-`covey mcp`, the stdio shim with the nine tools and two resources; agent session endpoints
-(`PUT/DELETE /v1/agents/{slug}/session`), `inbox/stop-claim` and `inbox?peek=true`; `covey hook
-session-start|stop|post-tool|session-end`, which always exit 0; `covey init [--user]`, which writes the four hooks and
-the MCP entry; `once` grants allow one request in flight (wildcard included); `GET /v1/agents` without `need` lists all.
+**Done:**
+- Schemas; `coveyd` serving every `api.yaml` operation.
+- The `covey mcp` shim with the nine tools (and `--worker` mode).
+- The four hooks, and `covey init [--user]`.
+- The CLI with `--json`, including `covey agent add`.
+- The Python SDK, the `/v1/events` stream and `covey top`.
+- The waker (`daemon/waker.py`): claims `queued` requests for wakeable agents (one worker per agent, two
+  overall, rolling 24 h budget), runs `claude -p` with a memory-only worker token, falls back to a reply from
+  the worker's result, kills hung workers, and marks requests `worker_lost` after a restart.
 
 **Blocked:** nothing.
 
-**Before the hooks slice counts as done:** a real two-session run through `covey init` hooks (Stop wakes `b`, PostToolUse note,
-`/clear` swaps the session id, `/exit` ends it); record the Stop block / `stop_hook_active: true` and SessionStart
-output payloads into `tests/fixtures/hooks/`; check `--resume` and macOS against the hook-auth decision.
-
 **Open decisions:**
-- An ended session is stored as `session_id = ""` so a late shim heartbeat cannot revive it, while sessionless SDK
-  agents still revive. Keep, or add a column with a migration?
-- Stop hook returns early on `stop_hook_active`, so a request arriving during the blocked turn waits for the next
-  turn end. Claim anyway (block-once already prevents loops)?
-- stop-claim stamps the request before the hook prints the block; a hook killed in between strands the request.
-- `covey init` writes bare `covey hook ...`; under `uv run` in a dev checkout that needs the venv on PATH. Add
-  `--command`?
-- Spawner open questions are at the end of `.claude/specs/spawner.md`.
+- An idle live session is never woken (`.claude/specs/hooks-real-session-findings.md`, finding 2). Claude
+  Code documents a cross-session inbox socket that may fix it; a spike plan is in that file, not scheduled.
+- Sweep clearing `session_id` (finding 1, option C) was dropped: it detaches a session for good after laptop
+  sleep. Revisit together with a way for the shim to re-attach.
+- `api.yaml` names four worker codes. The waker also uses `worker_error`, `worker_no_result` and
+  `worker_<subtype>`. Document them in a schema commit?
+- `covey agent add` cannot declare capabilities, so every request to a pre-registered agent needs an
+  approval until a session describes it. Add `--capabilities`?
+- `covey doctor` should check that `coveyd` can find `claude` (`COVEY_CLAUDE`). The daemon's PATH may differ
+  from the shell's.
+- Stop hook returns early on `stop_hook_active`, so a request arriving during the blocked turn waits for the
+  next turn end. Claim anyway?
+- stop-claim stamps the request before the hook prints the block; a hook killed in between strands it.
+- `covey init` writes bare `covey hook ...`; under `uv run` in a dev checkout that needs the venv on PATH.
+  Add `--command`?
 
 **Learned this week:**
-- Ranking by token overlap wins 18 of 20 realistic queries over eight cards; the two misses need
-  stemming ("remind"/"reminders") or synonyms ("payments"/"billing").
+- Ranking by token overlap wins 18 of 20 realistic queries over eight cards. The two misses need stemming
+  or synonyms.
 - uvicorn chmods a unix socket it binds itself to 0666, so `coveyd` binds both sockets itself.
-- Ruff 0.17's defaults include SIM and B rules; its SIM118 fix is wrong for `sqlite3.Row`.
-- Claude Code 2.1.319: the MCP server gets `CLAUDE_CODE_SESSION_ID` in its env, but `/clear` issues a
-  new session id without restarting it; the `claude` pid is stable and hooks get it as `CLAUDE_PID`.
-  PostToolUse `additionalContext` reaches the model, and fires after built-in tools too.
-- Claude Code 2.1.319: SessionStart `hookSpecificOutput.additionalContext` reaches the model; a Stop
-  `{"decision":"block","reason":...}` re-prompts once and the next Stop carries `stop_hook_active: true`.
-- `claude mcp add -s project` writes `{"type":"stdio","command":...,"args":[...],"env":{}}` into `.mcp.json`.
-- The `mcp` SDK (2.3.0) costs about 0.55 s to import; `covey mcp` answers `initialize` in about 0.75 s.
-  Each hook is also a Python start: measure PostToolUse latency in the real-session run.
-- A real two-session run (`a` asks `b` over MCP, `b` answers from its inbox, `a`'s `covey_wait` returns)
-  works on Claude Code 2.1.319. Claude Code also loads a parent directory's `.mcp.json`.
+- Ruff 0.17's SIM118 fix is wrong for `sqlite3.Row`.
+- Claude Code 2.1.319, sessions:
+  - `/clear` issues a new session id without restarting the MCP server; hooks get the stable pid as
+    `CLAUDE_PID`.
+  - PostToolUse and SessionStart `additionalContext` reach the model.
+  - A Stop block re-prompts once; the next Stop carries `stop_hook_active: true`.
+  - On `/exit` the shim closes before SessionEnd runs, so the shim now ends its own session.
+- Claude Code 2.1.319, `claude -p` (`tests/fixtures/worker/`):
+  - `--max-turns` is accepted but hidden from `--help`.
+  - `--restricted` still loads `CLAUDE.md`.
+  - Read-only Bash runs without being allowed.
+  - Denials don't fail the run; `result` is absent on errors.
+  - `--max-budget-usd` overshoots by a turn.
+  - The default model spends $0.19 in 3 turns; Sonnet answers a real question for $0.017 in about 6–8 s.
+- `python -m covey.cli` does not work (no `__main__`); worker `mcp.json` uses
+  `python -c "from covey.cli import app; app()"`.
+- Every hook costs 340–490 ms of Python start-up.
+- Tests can never reach the installed `claude`: fixtures point `claude_bin` and `COVEY_CLAUDE` at a missing
+  path. Worker tests use `tests/fixtures/worker/stub_claude.py`; `COVEY_TEST_REAL_CLAUDE=1` checks the
+  worker flags against `claude --help`.

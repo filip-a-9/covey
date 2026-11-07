@@ -7,13 +7,17 @@ import socket
 import tempfile
 import threading
 from collections.abc import Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 import pytest
 
 from covey.config import Config
 from covey.daemon.app import serve
+
+# `claude` is installed on dev machines: no test may spawn the real one (it costs money).
+# Tests that exercise workers point claude_bin at tests/fixtures/worker/stub_claude.py.
+NO_CLAUDE = "/nonexistent/claude-is-disabled-in-tests"
 
 
 def free_port() -> int:
@@ -51,6 +55,8 @@ def short_home():
 @contextlib.contextmanager
 def run_daemon(cfg: Config) -> Iterator[RunningDaemon]:
     """A real daemon on `cfg`, served in a background thread until the block exits."""
+    if cfg.claude_bin == "claude":
+        cfg = replace(cfg, claude_bin=NO_CLAUDE)
     ready_flag = threading.Event()
     failure: list[BaseException] = []
     handles: dict = {}
@@ -96,6 +102,11 @@ def run_daemon(cfg: Config) -> Iterator[RunningDaemon]:
 
 @pytest.fixture
 def daemon(short_home) -> Iterator[RunningDaemon]:
-    cfg = Config(home=short_home / "h", port=free_port(), sweep_interval_s=0.2)
+    cfg = Config(
+        home=short_home / "h",
+        port=free_port(),
+        sweep_interval_s=0.2,
+        claude_bin=NO_CLAUDE,
+    )
     with run_daemon(cfg) as running:
         yield running

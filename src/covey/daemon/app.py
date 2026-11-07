@@ -19,6 +19,7 @@ import contextlib
 import hmac
 import logging
 import os
+import secrets
 import signal
 import socket
 import sys
@@ -39,7 +40,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from covey import API_VERSION
 from covey import config as config_module
 from covey.config import Config, ConfigError
-from covey.daemon import events, grants, registry, router, store
+from covey.daemon import events, grants, registry, router, store, waker
 from covey.daemon.errors import CoveyError
 
 Transport = Literal["unix", "tcp"]
@@ -50,6 +51,15 @@ class Caller:
     kind: Literal["human", "join", "agent"]
     agent_id: str | None  # human@<node> for the human, None for the join token
     slug: str | None
+    worker_request: str | None = None  # set for a headless worker's token
+
+
+@dataclass(frozen=True)
+class WorkerAuth:
+    """A spawned worker's token, held only in memory: it acts as `agent_id` for one request."""
+
+    agent_id: str
+    request_id: str
 
 
 class Daemon:
@@ -60,6 +70,10 @@ class Daemon:
         self.human_id = f"human@{self.node.node_id}"
         self.human_hash = store.hash_token(cfg.token_path.read_text().strip())
         self.join_hash = store.hash_token(cfg.join_token_path.read_text().strip())
+        self.workers: dict[str, WorkerAuth] = {}  # token hash -> worker
+        # Workers die with the daemon, so a `working` request left from before is lost.
+        waker.recover(self.conn, self.node.node_id)
+        self.waker = waker.Waker(self)
         self._changed: asyncio.Condition | None = None
 
     @property
@@ -87,6 +101,15 @@ class Daemon:
                     pass
             value = predicate()
         return value
+
+    def mint_worker_token(self, agent_id: str, request_id: str) -> str:
+        """A fresh token for a worker serving `request_id` as `agent_id`; only its hash is kept."""
+        token = secrets.token_urlsafe(32)
+        self.workers[store.hash_token(token)] = WorkerAuth(agent_id, request_id)
+        return token
+
+    def revoke_worker_token(self, token: str) -> None:
+        self.workers.pop(store.hash_token(token), None)
 
     def close(self) -> None:
         self.conn.close()
@@ -146,12 +169,27 @@ def caller(request: Request) -> Caller:
     row = registry.agent_by_token_hash(daemon.conn, digest)
     if row is not None and hmac.compare_digest(digest, row["token_hash"] or ""):
         return Caller("agent", row["agent_id"], row["slug"])
+    worker = daemon.workers.get(digest)
+    if worker is not None:
+        slug = worker.agent_id.partition("@")[0]
+        return Caller("agent", worker.agent_id, slug, worker.request_id)
     raise CoveyError(
         401,
         "unauthorized",
         "Unknown token. Agent tokens are replaced on every register.",
         "Register again with the join token to get a fresh agent token.",
     )
+
+
+def not_worker(who: Caller) -> None:
+    """Liveness and sessions belong to a real session; a headless worker must not touch them."""
+    if who.worker_request is not None:
+        raise CoveyError(
+            403,
+            "wrong_token",
+            "A headless worker cannot heartbeat or attach a session.",
+            "Run `covey mcp --worker`, which never does either.",
+        )
 
 
 def require(*kinds: str) -> Callable[..., Caller]:
@@ -207,8 +245,20 @@ class RegisterBody(Body):
     capabilities: list[dict[str, Any]] = []
     instructions: str | None = Field(default=None, max_length=4000)
     webhook_url: str | None = None
-    wakeable: bool = False
+    wakeable: bool | None = None  # omitted keeps the existing value on a takeover
     session_id: str | None = None
+
+
+class CreateAgentBody(Body):
+    slug: str = Field(pattern=SLUG)
+    kind: str = Field(default="claude-code", min_length=1, max_length=64)
+    workdir: str = Field(min_length=1)
+    summary: str = Field(default="", max_length=1000)
+    tags: list[str] = []
+    capabilities: list[dict[str, Any]] = []
+    instructions: str | None = Field(default=None, max_length=4000)
+    wakeable: bool = False
+    worker: dict[str, Any] | None = None  # validated against card.json by the registry
 
 
 class DescribeBody(Body):
@@ -349,12 +399,24 @@ def create_app(cfg: Config) -> FastAPI:
         await daemon.notify()
         return versioned(card=card, agent_token=token)
 
+    @app.post("/v1/agents", status_code=201)
+    async def create_agent(
+        body: CreateAgentBody, who: Annotated[Caller, Depends(require("human"))]
+    ) -> dict:
+        daemon = app.state.daemon
+        card = registry.create_agent(
+            daemon.conn, daemon.node.node_id, body.model_dump(exclude_none=True)
+        )
+        await daemon.notify()
+        return versioned(card=card)
+
     @app.post("/v1/agents/{slug}/heartbeat")
     async def heartbeat_agent(
         slug: Annotated[str, Path(pattern=SLUG)],
         who: Annotated[Caller, Depends(require("join", "agent", "human"))],
     ) -> dict:
         daemon = app.state.daemon
+        not_worker(who)
         own_slug(who, slug)
         result = registry.heartbeat(daemon.conn, slug)
         await daemon.notify()
@@ -444,6 +506,7 @@ def create_app(cfg: Config) -> FastAPI:
         who: Annotated[Caller, Depends(require("agent"))],
     ) -> dict:
         daemon = app.state.daemon
+        not_worker(who)
         own_slug(who, slug)
         result = registry.set_session(daemon.conn, slug, body.session_id)
         await daemon.notify()
@@ -456,6 +519,7 @@ def create_app(cfg: Config) -> FastAPI:
         who: Annotated[Caller, Depends(require("agent"))],
     ) -> dict:
         daemon = app.state.daemon
+        not_worker(who)
         own_slug(who, slug)
         result = registry.end_session(daemon.conn, slug, body.reason)
         await daemon.notify()
@@ -474,11 +538,14 @@ def create_app(cfg: Config) -> FastAPI:
             body.task,
             context=body.context,
             thread_id=body.thread_id,
-            parent_id=body.parent_id,
+            # A worker that starts a fresh thread would reset hops; continue its request.
+            parent_id=body.parent_id
+            or (None if body.thread_id else who.worker_request),
             timeout_s=body.timeout_s,
             max_hops=daemon.cfg.max_hops,
         )
         await daemon.notify()
+        daemon.waker.kick()
         return versioned(request=req)
 
     @app.get("/v1/requests/{request_id}")
@@ -589,6 +656,7 @@ def create_app(cfg: Config) -> FastAPI:
             daemon.conn, request_id, body.scope, who.agent_id
         )
         await daemon.notify()
+        daemon.waker.kick()
         return versioned(request=req, grant=grant)
 
     @app.get("/v1/log")
@@ -686,6 +754,10 @@ async def _sweeper(daemon: Daemon) -> None:
             lambda t=now: registry.sweep(daemon.conn, t, daemon.cfg.liveness_timeout_s),
             lambda t=now: router.expire_due(daemon.conn, t),
         )
+        steps = (
+            *steps,
+            daemon.waker.kick,
+        )  # also catches sessions that ended with work queued
         for step in steps:
             try:
                 step()
@@ -768,6 +840,7 @@ async def serve(
             ):
                 logger.error("server task ended with %r", result)
         if app is not None:
+            await app.state.daemon.waker.shutdown()
             app.state.daemon.close()
         for sock in (unix_sock, tcp_sock):
             if sock is not None:
