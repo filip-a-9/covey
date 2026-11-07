@@ -85,6 +85,14 @@ print(p.pid)
 """
 
 
+def _wait_until_settled(cfg: Config, pid: int, deadline: float) -> None:
+    """A coveyd answers, but it may be another shim's. Wait until ours either owns the
+    pidfile (it won) or has exited (it lost). Returning while ours is still starting would
+    let it come up later, after `covey down`, as a daemon nobody can see or stop."""
+    while time.monotonic() < deadline and pid_alive(pid) and read_pid(cfg) != pid:
+        time.sleep(0.1)
+
+
 def ensure_daemon(cfg: Config, timeout_s: float = 10.0) -> None:
     """Return once coveyd answers on the socket, starting it if needed."""
     if daemon_answers(cfg):
@@ -118,6 +126,7 @@ def ensure_daemon(cfg: Config, timeout_s: float = 10.0) -> None:
                 f"Full log: {cfg.log_path}"
             )
         if daemon_answers(cfg):
+            _wait_until_settled(cfg, pid, deadline)
             return
         time.sleep(0.1)
     raise LaunchError(

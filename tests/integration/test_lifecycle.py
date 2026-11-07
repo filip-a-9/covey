@@ -253,17 +253,18 @@ def test_ensure_daemon_failure_names_the_fix_and_the_log(cli_env):
     assert "coveyd.log" in str(exc.value)
 
 
-def test_two_shims_starting_the_daemon_at_once_both_get_it(cli_env):
+@pytest.mark.parametrize("shims", [3, 8])
+def test_shims_starting_the_daemon_at_once_all_get_it(cli_env, shims):
     import concurrent.futures
 
     from covey import config
     from covey.launch import daemon_answers, ensure_daemon
 
     cfg = config.load()
-    with concurrent.futures.ThreadPoolExecutor(3) as pool:
-        futures = [pool.submit(ensure_daemon, cfg) for _ in range(3)]
+    with concurrent.futures.ThreadPoolExecutor(shims) as pool:
+        futures = [pool.submit(ensure_daemon, cfg) for _ in range(shims)]
         errors = [f.exception(30) for f in futures]
-    assert errors == [None, None, None]
+    assert errors == [None] * shims
     assert daemon_answers(cfg)
     assert run("down").exit_code == 0
     if sys.platform != "linux":
@@ -272,6 +273,50 @@ def test_two_shims_starting_the_daemon_at_once_both_get_it(cli_env):
     deadline = time.monotonic() + 5
     while _daemons_for(cli_env) and time.monotonic() < deadline:
         time.sleep(0.1)
+    leaked = _daemons_for(cli_env)
+    for pid in leaked:
+        os.kill(pid, 9)
+    assert leaked == []
+
+
+def test_a_shim_whose_coveyd_is_still_starting_waits_for_it(cli_env, monkeypatch):
+    """A shim's coveyd is slow to start; another daemon answers first. The shim must not
+    return while its own coveyd may still come up later, after `covey down`."""
+    import threading
+
+    from covey import config, launch
+
+    if sys.platform != "linux":
+        pytest.skip("the leak check reads /proc")
+    cfg = config.load()
+    slow = launch._DETACH.replace(
+        '[sys.executable, "-m", "covey.daemon"]',
+        '[sys.executable, "-c", "import time, runpy; time.sleep(1.5); '
+        "runpy.run_module('covey.daemon', run_name='__main__')\"]",
+    )
+    assert slow != launch._DETACH
+    monkeypatch.setattr(launch, "_DETACH", slow)
+    other: list[subprocess.Popen] = []
+
+    def start_other():
+        time.sleep(0.3)  # after the shim's first probe, before its coveyd wakes
+        other.append(
+            subprocess.Popen(
+                [sys.executable, "-m", "covey.daemon"],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,
+            )
+        )
+
+    starter = threading.Thread(target=start_other)
+    starter.start()
+    launch.ensure_daemon(cfg)
+    starter.join()
+    assert run("down").exit_code == 0
+    other[0].wait(10)
+    time.sleep(3)  # long enough for a slow coveyd to finish starting
     leaked = _daemons_for(cli_env)
     for pid in leaked:
         os.kill(pid, 9)
@@ -290,6 +335,6 @@ def _daemons_for(home) -> list[int]:
             env = (entry / "environ").read_bytes().split(b"\0")
         except OSError:
             continue
-        if b"covey.daemon" in cmd and want in env:
+        if any(b"covey.daemon" in arg for arg in cmd) and want in env:
             found.append(int(entry.name))
     return found
