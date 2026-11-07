@@ -337,3 +337,38 @@ async def test_an_unusable_directory_name_reports_covey_agent(daemon, tmp_path):
     assert "COVEY_AGENT" in text
     with human(daemon) as h:
         assert h.get("/v1/agents").json()["matches"] == []
+
+
+async def test_closing_the_shims_stdin_detaches_the_session_at_once(daemon, tmp_path):
+    import sqlite3
+    from pathlib import Path
+
+    from mcp import StdioServerParameters
+
+    workdir = tmp_path / "closer"
+    workdir.mkdir()
+    params = StdioServerParameters(
+        command=str(Path(sys.executable).parent / "covey"),
+        args=["mcp"],
+        env={
+            "COVEY_HOME": str(daemon.cfg.home),
+            "COVEY_PORT": str(daemon.cfg.port),
+            "CLAUDE_CODE_SESSION_ID": "sess-1",
+        },
+        cwd=workdir,
+    )
+
+    def row():
+        db = sqlite3.connect(daemon.cfg.db_path)
+        try:
+            return db.execute(
+                "SELECT liveness, session_id FROM agents WHERE slug = 'closer'"
+            ).fetchone()
+        finally:
+            db.close()
+
+    async with Client(params) as client:
+        await call(client, "covey_whoami")  # registration has finished
+        assert row() == ("live", "sess-1")
+    # leaving the context closed stdin and waited for the shim to exit
+    assert row() == ("gone", "")

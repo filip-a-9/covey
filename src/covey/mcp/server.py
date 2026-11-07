@@ -141,6 +141,22 @@ class Shim:
                 except OSError as exc:  # hooks will not find us; the tools still work
                     log(f"cannot write the session file for hooks: {exc}")
 
+    async def end_session(self) -> None:
+        """Best effort on shutdown: tell the daemon this session is over, before the file
+        goes, so the SessionEnd hook finding no file does not leave the agent live."""
+        if self.token is None:
+            return
+        try:
+            await self.client.call(
+                "DELETE",
+                f"/v1/agents/{self.slug}/session",
+                self.token,
+                json={"reason": "shim_exit"},
+                timeout=2.0,
+            )
+        except Exception as exc:  # noqa: BLE001 (shutdown must not fail)
+            log(f"cannot end the session: {exc!r}")
+
     def forget_session_file(self) -> None:
         """Remove the token file on exit, if it still holds our token."""
         if self.claude is None or self.token is None:
@@ -272,6 +288,7 @@ def build_server(shim: Shim) -> MCPServer:
             background.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await background
+            await shim.end_session()
             shim.forget_session_file()
             await shim.client.aclose()
 
