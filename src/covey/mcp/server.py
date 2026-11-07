@@ -275,9 +275,17 @@ def slug_of(agent_id: str) -> str:
     return agent_id.split("@", 1)[0]
 
 
+def one_line(text: Any) -> str:
+    """Peer-written text on a single line, so it cannot forge list entries."""
+    return " ".join(str(text).split())
+
+
 def caps_text(card: dict[str, Any]) -> str:
     caps = card.get("capabilities") or []
-    return ", ".join(f"{c['name']} ({c['level']})" for c in caps) or "none declared"
+    return (
+        ", ".join(one_line(f"{c['name']} ({c['level']})") for c in caps)
+        or "none declared"
+    )
 
 
 def request_line(r: dict[str, Any]) -> str:
@@ -313,11 +321,11 @@ def peers_text(body: dict[str, Any]) -> str:
         "| --- | --- | --- | --- |",
     ]
     for card in rows:
-        summary = (card.get("summary") or "").replace("|", "\\|").replace("\n", " ")
+        summary = one_line(card.get("summary") or "").replace("|", "\\|")
         lines.append(
             f"| `{card['slug']}` | {card['liveness']} | {summary} | {caps_text(card)} |"
         )
-    return "\n".join(lines)
+    return PEER_TEXT + "\n\n" + "\n".join(lines)
 
 
 def build_server(shim: Shim) -> MCPServer:
@@ -400,11 +408,11 @@ def build_server(shim: Shim) -> MCPServer:
             return render("No agent matches that need.", body)
         lines = [
             f"- `{m['card']['slug']}` ({m['card']['liveness']}): "
-            f"{m['card'].get('summary') or '(no summary)'}\n"
-            f"  Why: {m['why']}. Capabilities: {caps_text(m['card'])}"
+            f"{one_line(m['card'].get('summary') or '(no summary)')}\n"
+            f"  Why: {one_line(m['why'])}. Capabilities: {caps_text(m['card'])}"
             for m in body["matches"]
         ]
-        return render("\n".join(lines), body)
+        return render(PEER_TEXT + "\n\n" + "\n".join(lines), body)
 
     @mcp.tool(
         description="Delegate to another agent: a question, a lookup, a test run, an "

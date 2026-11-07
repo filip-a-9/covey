@@ -14,7 +14,7 @@ NUDGE = (
 )
 
 CARD_SET = (
-    "You are agent `{slug}` in the covey; your card is set (summary: {summary}). Other "
+    "You are agent `{slug}` in the covey; your card says: {summary!r}. Other "
     "agents may ask you for help. Call `covey_describe` only if the card is wrong."
 )
 
@@ -42,7 +42,9 @@ def _context_line(ctx: HookContext) -> str:
         except Exception:  # noqa: BLE001
             card = None
         if card and card.get("summary", "").strip() and card.get("capabilities"):
-            return CARD_SET.format(slug=ctx.slug, summary=card["summary"].strip())
+            return CARD_SET.format(
+                slug=ctx.slug, summary=" ".join(card["summary"].split())
+            )
     return NUDGE.format(slug=ctx.slug)
 
 

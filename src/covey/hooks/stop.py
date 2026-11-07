@@ -5,15 +5,11 @@ from typing import Any
 from covey.frames import CALL_TO_ACTION, FRAME
 from covey.hooks.client import HookContext
 
-TASK_LIMIT = 500
-
 
 def describe(request: dict[str, Any]) -> str:
-    task = " ".join(str(request.get("task", "")).split())
-    if len(task) > TASK_LIMIT:
-        task = task[:TASK_LIMIT] + "..."
+    """The sender and capability only: the task text is read with `covey_inbox`."""
     who = str(request.get("from_agent", "")).partition("@")[0] or "unknown"
-    return f"- From `{who}` ({request.get('capability', '?')}): {task}"
+    return f"- From `{who}` ({request.get('capability', '?')})"
 
 
 def run(payload: dict[str, Any], ctx: HookContext) -> dict[str, Any] | None:
