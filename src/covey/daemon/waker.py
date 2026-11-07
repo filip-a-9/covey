@@ -169,6 +169,11 @@ def spawns_since(conn: sqlite3.Connection, agent_id: str, since: datetime) -> in
     return row[0]
 
 
+def find_claude(cfg: Config) -> str | None:
+    """The `claude` executable workers run (`COVEY_CLAUDE`, else PATH), or None."""
+    return shutil.which(cfg.claude_bin)
+
+
 def _unavailable(cfg: Config, card: dict[str, Any]) -> tuple[str, str] | None:
     """Why no worker can run for this card, as (message, next_step), or None."""
     workdir = card.get("workdir")
@@ -177,7 +182,7 @@ def _unavailable(cfg: Config, card: dict[str, Any]) -> tuple[str, str] | None:
             f"Agent {card['slug']!r} has no usable workdir ({workdir!r}).",
             f"Run `covey agent add {card['slug']} --workdir <repo> --wakeable`.",
         )
-    if shutil.which(cfg.claude_bin) is None:
+    if find_claude(cfg) is None:
         return (
             f"coveyd cannot find the `claude` executable ({cfg.claude_bin!r}).",
             (

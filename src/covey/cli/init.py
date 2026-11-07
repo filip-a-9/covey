@@ -5,28 +5,108 @@ Formats confirmed against Claude Code 2.1.319: hooks live in `settings.json` as
 `claude mcp add -s project` writes `.mcp.json` as
 `{"mcpServers": {name: {"type": "stdio", "command": str, "args": [...], "env": {}}}}`;
 user-scope MCP servers live under the same key in `~/.claude.json`.
+
+Hook and MCP commands carry the absolute path of the `covey` executable that ran init, since
+Claude Code starts them without the venv or tool directory on PATH. Under `uvx` that
+executable lives in uv's throwaway cache (`<cache>/archive-v0/<hash>/bin/covey`) and
+disappears on a cache clean, so init refuses there and says to `uv tool install covey`.
+Re-running init is idempotent: it recognises a covey hook by its `hook <name>` tail and
+rewrites an old bare `covey hook ...` command in place instead of adding a second one.
 """
 
+import itertools
 import json
 import os
+import shlex
+import shutil
+import sys
 from pathlib import Path
 from typing import Annotated, Any
 
 import typer
 
 HOOKS: dict[str, tuple[str, str | None]] = {
-    # event: (command, matcher)
-    "SessionStart": ("covey hook session-start", None),
-    "Stop": ("covey hook stop", None),
-    "PostToolUse": ("covey hook post-tool", "*"),
-    "SessionEnd": ("covey hook session-end", None),
+    # event: (subcommand argument, matcher)
+    "SessionStart": ("session-start", None),
+    "Stop": ("stop", None),
+    "PostToolUse": ("post-tool", "*"),
+    "SessionEnd": ("session-end", None),
 }
-MCP_ENTRY: dict[str, Any] = {
-    "type": "stdio",
-    "command": "covey",
-    "args": ["mcp"],
-    "env": {},
-}
+UVX_REFUSAL = (
+    "`covey init` is running from uvx's temporary environment ({exe}), which uv can delete. "
+    "Run `uv tool install covey && covey init` instead."
+)
+
+
+class InitError(Exception):
+    pass
+
+
+def hook_command(exe: str, arg: str) -> str:
+    return f"{shlex.quote(exe)} hook {arg}"
+
+
+def mcp_entry(exe: str) -> dict[str, Any]:
+    return {"type": "stdio", "command": exe, "args": ["mcp"], "env": {}}
+
+
+def is_covey_hook(command: object, arg: str) -> bool:
+    """True for `<anything named covey> hook <arg>`, bare or absolute."""
+    if not isinstance(command, str):
+        return False
+    try:
+        words = shlex.split(command)
+    except ValueError:
+        return False
+    return (
+        len(words) == 3
+        and Path(words[0]).name == "covey"
+        and words[1:] == ["hook", arg]
+    )
+
+
+def hook_runs(command: str) -> bool:
+    """True when the command's executable exists (bare names are looked up on PATH)."""
+    try:
+        return shutil.which(shlex.split(command)[0]) is not None
+    except (ValueError, IndexError):
+        return False
+
+
+def is_ephemeral(exe: Path) -> bool:
+    """True when `exe` is inside uv's cache, where `uvx` unpacks its throwaway environments."""
+    for path in (exe, exe.resolve()):
+        cache = os.environ.get("UV_CACHE_DIR")
+        if cache and path.is_relative_to(Path(cache).resolve()):
+            return True
+        parts = path.parts
+        if any(
+            parent == "uv" and child.startswith("archive-v")
+            for parent, child in itertools.pairwise(parts)
+        ):
+            return True
+    return False
+
+
+def covey_executable() -> str:
+    """Absolute path of the `covey` that is running: the console script in argv[0], else
+    `covey` on PATH, else next to this Python. Raises InitError when none is a real file."""
+    argv0 = Path(sys.argv[0])
+    candidates = [argv0.absolute() if argv0.name == "covey" else None]
+    found = shutil.which("covey")
+    candidates += [
+        Path(found).absolute() if found else None,
+        Path(sys.executable).absolute().parent / "covey",
+    ]
+    for path in candidates:
+        if path is not None and path.is_file():
+            if is_ephemeral(path):
+                raise InitError(UVX_REFUSAL.format(exe=path))
+            return str(path)
+    raise InitError(
+        "Could not find the `covey` executable to write into the hooks. "
+        "Run `uv tool install covey && covey init`."
+    )
 
 
 def hooks_available() -> bool:
@@ -37,10 +117,6 @@ def hooks_available() -> bool:
     from covey.cli import app
 
     return "hook" in getattr(get_command(app), "commands", {})
-
-
-class InitError(Exception):
-    pass
 
 
 def read_json(path: Path) -> dict[str, Any]:
@@ -69,39 +145,50 @@ def object_key(parent: dict[str, Any], key: str) -> dict[str, Any]:
     return value
 
 
-def merge_hooks(settings: dict[str, Any]) -> list[str]:
-    """Add missing covey hooks in place; return the events that were added."""
-    added = []
+def merge_hooks(settings: dict[str, Any], exe: str) -> list[tuple[str, str]]:
+    """Add or update covey hooks in place; return (event, "added" | "updated") pairs."""
+    changed = []
     hooks = object_key(settings, "hooks")
-    for event, (command, matcher) in HOOKS.items():
+    for event, (arg, matcher) in HOOKS.items():
+        command = hook_command(exe, arg)
         groups = hooks.setdefault(event, [])
         if not isinstance(groups, list):
             raise InitError(
                 f'The "hooks.{event}" key must be a list. Fix it, then run `covey init` again.'
             )
-        present = any(
-            h.get("command") == command
+        entries = [
+            h
             for g in groups
             if isinstance(g, dict)
             for h in g.get("hooks", [])
-            if isinstance(h, dict)
-        )
-        if present:
+            if isinstance(h, dict) and is_covey_hook(h.get("command"), arg)
+        ]
+        if any(h["command"] == command for h in entries):
+            continue
+        if entries:  # an old bare or moved command: rewrite it in place
+            for h in entries:
+                h["command"] = command
+            changed.append((event, "updated"))
             continue
         group: dict[str, Any] = {"hooks": [{"type": "command", "command": command}]}
         if matcher:
             group = {"matcher": matcher, **group}
         groups.append(group)
-        added.append(event)
-    return added
+        changed.append((event, "added"))
+    return changed
 
 
-def merge_mcp(config: dict[str, Any]) -> bool:
+def merge_mcp(config: dict[str, Any], exe: str) -> str | None:
+    """Return "added", "updated" (an old bare `covey` command) or None (left alone)."""
     servers = object_key(config, "mcpServers")
-    if "covey" in servers:
-        return False
-    servers["covey"] = dict(MCP_ENTRY)
-    return True
+    current = servers.get("covey")
+    if current is None:
+        servers["covey"] = mcp_entry(exe)
+        return "added"
+    if isinstance(current, dict) and current.get("command") == "covey":
+        current["command"] = exe
+        return "updated"
+    return None
 
 
 def write_json(path: Path, data: dict[str, Any]) -> None:
@@ -120,19 +207,30 @@ def run_init(base: Path, home: Path | None) -> list[dict[str, str]]:
             home / ".claude" / "settings.json",
             home / ".claude.json",
         )
+    exe = covey_executable()
     settings, mcp = read_json(settings_path), read_json(mcp_path)
-    added = merge_hooks(settings) if hooks_available() else []
+    done = merge_hooks(settings, exe) if hooks_available() else []
     changes = [
-        {"file": str(settings_path), "added": f"{e} hook ({HOOKS[e][0]})"}
-        for e in added
+        {
+            "file": str(settings_path),
+            "action": action,
+            "added": f"{e} hook ({hook_command(exe, HOOKS[e][0])})",
+        }
+        for e, action in done
     ]
     hooks_changed = bool(changes)
-    mcp_changed = merge_mcp(mcp)
-    if mcp_changed:
-        changes.append({"file": str(mcp_path), "added": "mcpServers.covey (covey mcp)"})
+    mcp_action = merge_mcp(mcp, exe)
+    if mcp_action:
+        changes.append(
+            {
+                "file": str(mcp_path),
+                "action": mcp_action,
+                "added": f"mcpServers.covey ({exe} mcp)",
+            }
+        )
     if hooks_changed:
         write_json(settings_path, settings)
-    if mcp_changed:
+    if mcp_action:
         write_json(mcp_path, mcp)
     return changes
 
@@ -163,7 +261,7 @@ def init(
             "Already set up: nothing changed. Run `covey up` to start the daemon."
         )
     else:
-        lines = [f"{c['file']}: added {c['added']}" for c in changes]
+        lines = [f"{c['file']}: {c['action']} {c['added']}" for c in changes]
         typer.echo(
             "\n".join(lines) + "\nRestart Claude Code sessions, then run `covey up`."
         )

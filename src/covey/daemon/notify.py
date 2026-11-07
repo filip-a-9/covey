@@ -77,6 +77,16 @@ def _import_plyer() -> Any:
     return notification
 
 
+def backend_name(mode: str, osrelease: Path = OSRELEASE, plyer: Any = ...) -> str:
+    """Which backend `select` picks: "log", "powershell" or "plyer"."""
+    if mode == "log":
+        return "log"
+    if is_wsl(osrelease):
+        return "powershell"
+    module = _import_plyer() if plyer is ... else plyer
+    return "log" if module is None else "plyer"
+
+
 def select(
     mode: str,
     osrelease: Path = OSRELEASE,
@@ -84,14 +94,14 @@ def select(
     plyer: Any = ...,
 ) -> Backend | None:
     """The backend for `mode`, or None to only log. `plyer=None` means it is not installed."""
-    if mode == "log":
-        return None
-    if is_wsl(osrelease):
+    if plyer is ...:
+        plyer = _import_plyer()
+    name = backend_name(mode, osrelease, plyer)
+    if name == "powershell":
         return _toast(run)
-    module = _import_plyer() if plyer is ... else plyer
-    if module is None:
-        return None
-    return lambda text: module.notify(title="Covey", message=text, timeout=10)
+    if name == "plyer":
+        return lambda text: plyer.notify(title="Covey", message=text, timeout=10)
+    return None
 
 
 def configure(mode: str) -> None:

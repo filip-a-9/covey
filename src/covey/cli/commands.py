@@ -16,7 +16,7 @@ import typer
 
 from covey.cli import JsonOpt, app, fail, load_cfg, out, probe, slug, whoami
 from covey.cli.client import human_client
-from covey.cli.init import HOOKS
+from covey.cli.init import HOOKS, hook_runs, is_covey_hook
 from covey.launch import daemon_answers
 
 FINAL = ("done", "failed", "refused", "expired")
@@ -438,10 +438,11 @@ def install_checks() -> list[dict[str, Any]]:
     settings = [cwd / ".claude" / "settings.json", home / ".claude" / "settings.json"]
     mcp_files = [cwd / ".mcp.json", home / ".claude.json"]
 
-    def hook_present(data: dict[str, Any], event: str, command: str) -> bool:
+    def hook_present(data: dict[str, Any], event: str, arg: str) -> bool:
+        """A covey hook whose executable exists; an old bare `covey` off PATH is not one."""
         groups = data.get("hooks", {}).get(event, [])
         return any(
-            h.get("command") == command
+            is_covey_hook(h.get("command"), arg) and hook_runs(h["command"])
             for g in groups
             if isinstance(g, dict)
             for h in g.get("hooks", [])
@@ -451,8 +452,8 @@ def install_checks() -> list[dict[str, Any]]:
     loaded = [json_file(p) for p in settings]
     missing = [
         e
-        for e, (cmd, _) in HOOKS.items()
-        if not any(hook_present(d, e, cmd) for d in loaded)
+        for e, (arg, _) in HOOKS.items()
+        if not any(hook_present(d, e, arg) for d in loaded)
     ]
     mcp_ok = any("covey" in json_file(p).get("mcpServers", {}) for p in mcp_files)
     return [
@@ -487,6 +488,47 @@ def claude_check() -> dict[str, Any]:
     return check(
         "claude", res.returncode == 0, res.stdout.strip() or res.stderr.strip(), fix
     )
+
+
+def claude_for_coveyd_check(cfg: Any) -> dict[str, Any]:
+    from covey.daemon.waker import find_claude
+
+    fix = (
+        "Set COVEY_CLAUDE to the full path of `claude` (`which claude`), then"
+        " `covey down && covey up`."
+    )
+    exe = find_claude(cfg)
+    if exe is None:
+        return check(
+            "claude for coveyd",
+            False,
+            f"{cfg.claude_bin!r} not found (the daemon's lookup, run from this shell's PATH)",
+            fix,
+        )
+    return check(
+        "claude for coveyd",
+        True,
+        f"{exe} (checked from this shell with the daemon's lookup; coveyd's own PATH may differ)",
+        fix,
+    )
+
+
+def notify_check(cfg: Any) -> dict[str, Any]:
+    from covey.daemon import notify
+
+    name = notify.backend_name(cfg.notify)
+    fix = (
+        "Start coveyd from a shell where `powershell.exe` is on PATH (Windows interop on),"
+        " or set COVEY_NOTIFY=log to only log, then `covey down && covey up`."
+    )
+    if name == "powershell" and shutil.which("powershell.exe") is None:
+        return check(
+            "notify backend",
+            False,
+            "powershell on WSL, but `powershell.exe` is not on PATH: toasts will silently log only",
+            fix,
+        )
+    return check("notify backend", True, name, fix)
 
 
 def port_check(port: int) -> dict[str, Any]:
@@ -532,6 +574,8 @@ def doctor(as_json: JsonOpt = False) -> None:
         ),
         *install_checks(),
         claude_check(),
+        claude_for_coveyd_check(cfg),
+        notify_check(cfg),
         port_check(cfg.port),
     ]
     ok = all(c["ok"] for c in checks)
