@@ -658,8 +658,16 @@ components:
       description: |
         `working` means a headless worker spawned by the daemon has claimed the request;
         only the daemon sets it. A request still `working` when its worker exits is
-        answered by the daemon from the worker's result. Worker failures use the codes
-        `spawn_budget_exhausted`, `worker_unavailable`, `worker_timeout` and `worker_lost`.
+        answered by the daemon from the worker's result. A worker failure sets `failed`
+        with one of these codes as the `result`:
+        - `spawn_budget_exhausted`: the agent used its `worker.daily_spawns` in the last 24 h.
+        - `worker_unavailable`: no usable workdir, `claude` not found, or it did not start.
+        - `worker_timeout`: killed at the request deadline or the daemon's worker timeout.
+        - `worker_lost`: the daemon restarted while the worker ran.
+        - `worker_<subtype>`: claude ended with that error subtype, e.g.
+          `worker_error_max_budget_usd` or `worker_error_max_turns`.
+        - `worker_no_result`: claude reported success but gave no result text.
+        - `worker_error`: claude's output could not be read (crash, garbage).
       enum: [queued, awaiting_grant, delivered, working, needs_input, done, failed, refused, expired]
 
     GrantScope:
