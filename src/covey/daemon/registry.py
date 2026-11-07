@@ -42,6 +42,12 @@ _VALIDATOR = Draft202012Validator(json.loads(_CARD_SCHEMA.read_text()))
 ENDED_SESSION = ""
 DESCRIBABLE = ("summary", "tags", "capabilities", "instructions")
 RECENT_REQUESTS = 20
+# Tiny synonym table for discovery ranking (one place). Keys are stemmed tokens.
+SYNONYMS = {
+    "payment": "billing",
+}
+
+
 STOPWORDS = frozenset(
     {
         "a",
@@ -549,8 +555,17 @@ def sweep(conn: sqlite3.Connection, now: str, timeout_s: float) -> list[str]:
     return changed
 
 
+def _stem(word: str) -> str:
+    """Tiny deterministic stemmer: strip one common suffix, keep a 4-letter root."""
+    for suffix in ("ing", "ed", "er"):
+        if word.endswith(suffix) and len(word) - len(suffix) >= 4:
+            return word[: -len(suffix)]
+    return word
+
+
 def _tokens(text: str) -> list[str]:
-    """Lowercase alphanumeric words, minus stopwords, with a light plural strip."""
+    """Lowercase alphanumeric words, minus stopwords, with a light plural strip,
+    a tiny stemmer and a small synonym expansion."""
     out = []
     for word in re.findall(r"[a-z0-9]+", text.lower()):
         if word in STOPWORDS:
@@ -559,7 +574,11 @@ def _tokens(text: str) -> list[str]:
             word = word[:-3] + "y"
         elif len(word) > 3 and word.endswith("s") and not word.endswith("ss"):
             word = word[:-1]
+        word = _stem(word)
         out.append(word)
+        syn = SYNONYMS.get(word)
+        if syn is not None:
+            out.append(_stem(syn))
     return out
 
 
