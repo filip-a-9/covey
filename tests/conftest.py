@@ -16,6 +16,12 @@ def no_real_claude(monkeypatch):
     monkeypatch.setenv("COVEY_CLAUDE", "/nonexistent/claude-is-disabled-in-tests")
 
 
+@pytest.fixture(autouse=True)
+def no_real_toast(monkeypatch):
+    """No test may pop a desktop notification, from this process or a daemon subprocess."""
+    monkeypatch.setenv("COVEY_NOTIFY", "log")
+
+
 @pytest.fixture
 def cfg(tmp_path) -> Config:
     return Config(

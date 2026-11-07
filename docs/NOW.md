@@ -1,8 +1,8 @@
 # Now
 
-**Current slice:** spawner, done (`.claude/specs/spawner.md`). A `wakeable` agent with no session is served
-by a headless `claude -p` worker; spawn budget, concurrency and timeout are enforced. Next: the trust slice
-(ancestry check, desktop notifications behind `notify_human`, then Bash for workers).
+**Current slice:** trust, code done (`.claude/specs/trust.md`). Not yet checked against a real session: an
+agent's `covey approve` through Bash must be refused with `human_only`, the same command from the user's
+terminal must pass, and the WSL toast must appear only while `covey top` is closed. Next: docs + hero GIF.
 
 **Done:**
 - Schemas; `coveyd` serving every `api.yaml` operation.
@@ -13,6 +13,14 @@ by a headless `claude -p` worker; spawn budget, concurrency and timeout are enfo
 - The waker (`daemon/waker.py`): claims `queued` requests for wakeable agents (one worker per agent, two
   overall, rolling 24 h budget), runs `claude -p` with a memory-only worker token, falls back to a reply from
   the worker's result, kills hung workers, and marks requests `worker_lost` after a restart.
+- Trust slice:
+  - The human token is refused from inside an agent's process tree. The daemon reads the peer pid on
+    the unix socket and keeps session roots in memory (`daemon/peer.py`), so there is no DDL change. It
+    fails closed when the peer pid is unreadable.
+  - Desktop notifications (`daemon/notify.py`): a toast through `powershell.exe` on WSL, plyer
+    elsewhere, `COVEY_NOTIFY=log` to turn them off. Approvals notify only when no human watcher is
+    connected.
+  - Workers may have Bash when the human lists it.
 
 **Blocked:** nothing.
 
@@ -26,10 +34,19 @@ by a headless `claude -p` worker; spawn budget, concurrency and timeout are enfo
 - Stop hook returns early on `stop_hook_active`, so a request arriving during the blocked turn waits for the
   next turn end. Claim anyway?
 - stop-claim stamps the request before the hook prints the block; a hook killed in between strands it.
+- `covey doctor` should report the active notify backend. coveyd started without Windows PATH interop
+  (systemd, some `uv` setups) can't find `powershell.exe` and silently logs only.
+- `PUT /v1/agents/{slug}/session` doesn't record a session root. Only register and heartbeat do, so after
+  `/clear` the root waits for the next heartbeat (≤20 s).
 - `covey init` writes bare `covey hook ...`; under `uv run` in a dev checkout that needs the venv on PATH.
   Add `--command`?
 
 **Learned this week:**
+- uvicorn 0.54 has no hook for the peer socket. Subclassing its HTTP protocol class and wrapping
+  `self.app` in `connection_made` puts the peer pid in every request scope. Setting `conf.http` after
+  `load()` has no effect: pass `http=` to a fresh `Config`.
+- A test daemon runs inside pytest, which may itself run under Claude Code. The ancestry check ignores
+  coveyd's own ancestors, or the outer `claude` would refuse every human call.
 - Ranking by token overlap wins 18 of 20 realistic queries over eight cards. The two misses need stemming
   or synonyms.
 - uvicorn chmods a unix socket it binds itself to 0666, so `coveyd` binds both sockets itself.

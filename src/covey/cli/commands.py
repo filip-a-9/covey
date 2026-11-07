@@ -161,7 +161,10 @@ def agent_add(
     ] = None,
     allowed_tools: Annotated[
         str | None,
-        typer.Option(help="Comma-separated Claude Code tools for the worker."),
+        typer.Option(
+            help="Comma-separated Claude Code tools and rules for the worker, e.g. "
+            "`Read,Edit(docs/**),Bash(git status:*)`. Bash only if you list it."
+        ),
     ] = None,
     max_turns: Annotated[
         int | None, typer.Option(help="Turn cap for one worker run.")

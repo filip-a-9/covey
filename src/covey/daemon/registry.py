@@ -153,19 +153,6 @@ def _existing_not_live(conn: sqlite3.Connection, slug: str) -> sqlite3.Row | Non
     return row
 
 
-def _refuse_shell_tools(worker: dict[str, Any]) -> None:
-    for tool in worker.get("allowed_tools", []):
-        if tool == "Bash" or tool.startswith("Bash("):
-            raise CoveyError(
-                400,
-                "tool_not_allowed",
-                f"Workers cannot have {tool!r} yet: covey cannot yet check that the human"
-                " token is used only by the human, so a worker with a shell could grant"
-                " itself anything.",
-                "Leave Bash out of --allowed-tools until the trust slice adds that check.",
-            )
-
-
 def create_agent(
     conn: sqlite3.Connection, node_id: str, body: dict[str, Any]
 ) -> dict[str, Any]:
@@ -175,7 +162,6 @@ def create_agent(
     `agent.created` as the human. `body` is a CreateAgentBody."""
     slug = body.get("slug", "")
     _check_not_reserved(slug)
-    _refuse_shell_tools(body.get("worker") or {})
     agent_id = f"{slug}@{node_id}"
     now = store.now_iso()
     wakeable = bool(body.get("wakeable", False))

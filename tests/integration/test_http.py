@@ -494,10 +494,10 @@ def test_create_agent_is_human_only(tcp, daemon, web):
         assert r.status_code == 403, r.text
 
 
-def test_create_agent_refuses_bash_and_unknown_fields(human):
+def test_create_agent_accepts_bash_and_refuses_unknown_fields(human):
     bash = {"slug": "docs", "workdir": "/x", "worker": {"allowed_tools": ["Bash"]}}
     r = human.post("/v1/agents", json=bash)
-    assert (r.status_code, r.json()["error"]["code"]) == (400, "tool_not_allowed")
+    assert r.status_code == 201, r.text
     extra = {"slug": "docs", "workdir": "/x", "token": "t"}
     assert human.post("/v1/agents", json=extra).status_code == 400
 

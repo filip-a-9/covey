@@ -176,6 +176,17 @@ def test_a_wakeable_agent_is_served_by_a_worker_that_replies_over_mcp(mesh):
     assert not (mesh.cfg.workers_path / rid).exists()  # mcp.json and its token are gone
 
 
+@modes("reply")
+def test_a_worker_given_bash_gets_the_tool_and_its_rules(mesh):
+    mesh.add_docs(allowed_tools=["Read", "Bash(git status:*)"])
+    rid = mesh.ask()["request_id"]
+    assert mesh.wait_final(rid)["status"] == "done"
+    [run] = mesh.stub_runs()
+    argv = run["argv"]
+    assert argv[argv.index("--tools") + 1].split(",") == ["Read", "Bash"]
+    assert "Bash(git status:*)" in argv[argv.index("--allowedTools") + 1].split(",")
+
+
 @modes("silent-success")
 def test_a_worker_that_does_not_reply_is_answered_from_its_result(mesh):
     mesh.add_docs()

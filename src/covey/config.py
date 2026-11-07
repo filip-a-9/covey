@@ -6,6 +6,8 @@ Environment variables:
     COVEY_CLAUDE        the `claude` executable headless workers run (default `claude` on PATH)
     COVEY_WORKER_MODEL  model for headless workers (default `sonnet`: the default model can
                         spend more than a worker's budget in its first turns)
+    COVEY_NOTIFY        `auto` (desktop notification where one is available, always logged) or
+                        `log` (log only) (default `auto`)
 """
 
 import os
@@ -27,6 +29,8 @@ class Config:
     max_hops: int = 4
     claude_bin: str = "claude"
     worker_model: str = "sonnet"
+    # Direct Config(...) callers (tests, embedders) never get a desktop toast; load() says `auto`.
+    notify: str = "log"
     max_workers: int = 2  # headless workers running at once, across all agents
     worker_timeout_s: float = (
         600.0  # wall-clock kill, or the request deadline if sooner
@@ -77,8 +81,14 @@ def load(env: Mapping[str, str] | None = None) -> Config:
         raise ConfigError(
             f"COVEY_PORT={raw_port!r} is not a TCP port. Set it to a number between 1 and 65535."
         )
+    notify = env.get("COVEY_NOTIFY") or "auto"
+    if notify not in ("auto", "log"):
+        raise ConfigError(
+            f"COVEY_NOTIFY={notify!r} is not a mode. Set it to `auto` or `log`."
+        )
     return Config(
         home=home,
+        notify=notify,
         port=port,
         claude_bin=env.get("COVEY_CLAUDE") or "claude",
         worker_model=env.get("COVEY_WORKER_MODEL") or "sonnet",

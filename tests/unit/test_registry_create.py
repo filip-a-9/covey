@@ -53,15 +53,11 @@ def test_create_stores_the_worker_block(conn, node):
     assert stored["worker"] == worker
 
 
-def test_create_refuses_bash_in_the_worker_tools(conn, node):
-    for tool in ("Bash", "Bash(git status:*)"):
-        err = refusal(
-            create, conn, node, wakeable=True, worker={"allowed_tools": [tool]}
-        )
-        assert (err.status, err.code) == (400, "tool_not_allowed")
-    assert (
-        conn.execute("SELECT count(*) FROM agents WHERE slug='docs'").fetchone()[0] == 0
-    )
+def test_create_accepts_bash_in_the_worker_tools(conn, node):
+    worker = {"allowed_tools": ["Read", "Bash", "Bash(git status:*)"]}
+    create(conn, node, wakeable=True, worker=worker)
+    stored = json.loads(registry.get_agent(conn, "docs")["card"])
+    assert stored["worker"]["allowed_tools"] == ["Read", "Bash", "Bash(git status:*)"]
 
 
 def test_create_refuses_a_live_slug(conn, node):

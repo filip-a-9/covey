@@ -22,8 +22,9 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from covey import procs
 from covey.config import Config
-from covey.daemon import registry, router, store
+from covey.daemon import notify, registry, router, store
 from covey.daemon.errors import CoveyError
 
 logger = logging.getLogger("covey.waker")
@@ -154,8 +155,8 @@ class Claim:
 
 
 def notify_human(text: str) -> None:
-    """Tell the human something went wrong. Only logs until the trust slice adds plyer."""
-    logger.warning("%s", text)
+    """Tell the human something went wrong: logged, and a desktop notification if possible."""
+    notify.human(text)
 
 
 def spawns_since(conn: sqlite3.Connection, agent_id: str, since: datetime) -> int:
@@ -339,6 +340,7 @@ class Waker:
     def __init__(self, daemon: Any):
         self.daemon = daemon
         self.running: set[str] = set()  # agent ids with a worker process
+        self.pids: dict[str, tuple[int, str]] = {}  # agent id -> (pid, start_time)
         self.tasks: set[asyncio.Task] = set()
 
     def kick(self) -> None:
@@ -389,6 +391,9 @@ class Waker:
                 )
                 notify_human(f"Request {rid}: the worker did not start ({exc}).")
                 return
+            start = procs._start_time(proc.pid)
+            if start is not None:
+                self.pids[c.agent_id] = (proc.pid, start)
             try:
                 stdout, stderr = await asyncio.wait_for(
                     proc.communicate(task_text(c).encode()),
@@ -410,6 +415,7 @@ class Waker:
             d.revoke_worker_token(token)
             shutil.rmtree(folder, ignore_errors=True)
             self.running.discard(c.agent_id)
+            self.pids.pop(c.agent_id, None)
         await d.notify()
         self.kick()  # the agent is free: serve whatever queued meanwhile
 

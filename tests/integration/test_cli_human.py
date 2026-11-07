@@ -280,18 +280,18 @@ def test_agent_add_missing_workdir_fails(env, tmp_path):
     cli("agent", "add", "docs", "--workdir", str(tmp_path / "nope"), expect=1)
 
 
-def test_agent_add_with_bash_fails_with_the_daemons_reason(env, tmp_path):
-    data = cli_json(
+def test_agent_add_accepts_bash(env, tmp_path):
+    card = cli_json(
         "agent",
         "add",
         "docs",
         "--workdir",
         str(tmp_path),
+        "--wakeable",
         "--allowed-tools",
-        "Bash",
-        expect=1,
-    )
-    assert data["code"] == "tool_not_allowed"
+        "Read,Bash",
+    )["card"]
+    assert card["worker"]["allowed_tools"] == ["Read", "Bash"]
 
 
 def test_agent_add_declares_capabilities(env, tmp_path):

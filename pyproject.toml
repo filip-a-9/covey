@@ -21,6 +21,9 @@ coveyd = "covey.daemon.app:main"
 tui = [
     "textual==8.2.8",
 ]
+notify = [
+    "plyer==2.1.0",
+]
 
 [build-system]
 requires = ["hatchling"]

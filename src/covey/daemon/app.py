@@ -25,7 +25,7 @@ import socket
 import sys
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable, Iterator
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Annotated, Any, Literal
@@ -40,7 +40,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from covey import API_VERSION
 from covey import config as config_module
 from covey.config import Config, ConfigError
-from covey.daemon import events, grants, registry, router, store, waker
+from covey.daemon import events, grants, notify, peer, registry, router, store, waker
 from covey.daemon.errors import CoveyError
 
 Transport = Literal["unix", "tcp"]
@@ -74,6 +74,11 @@ class Daemon:
         # Workers die with the daemon, so a `working` request left from before is lost.
         waker.recover(self.conn, self.node.node_id)
         self.waker = waker.Waker(self)
+        # agent_id -> (pid, start_time) of the process tree its session lives in. In memory
+        # only: it refills within one heartbeat after a restart.
+        self.session_pids: dict[str, peer.Root] = {}
+        notify.configure(cfg.notify)
+        self.human_watchers = 0  # open human event streams and approval long-polls
         self._changed: asyncio.Condition | None = None
 
     @property
@@ -102,6 +107,15 @@ class Daemon:
             value = predicate()
         return value
 
+    @contextlib.contextmanager
+    def watching(self) -> Iterator[None]:
+        """Count a human watcher (event stream or approvals long-poll) while the block runs."""
+        self.human_watchers += 1
+        try:
+            yield
+        finally:
+            self.human_watchers -= 1
+
     def mint_worker_token(self, agent_id: str, request_id: str) -> str:
         """A fresh token for a worker serving `request_id` as `agent_id`; only its hash is kept."""
         token = secrets.token_urlsafe(32)
@@ -110,6 +124,25 @@ class Daemon:
 
     def revoke_worker_token(self, token: str) -> None:
         self.workers.pop(store.hash_token(token), None)
+
+    def note_session(
+        self, agent_id: str, request: Request, replace: bool = False
+    ) -> None:
+        """Remember where this agent's session runs, from a unix-socket call's peer pid."""
+        pid = request.scope.get("covey_peer_pid")
+        root = None
+        if transport_of(request) == "unix" and pid is not None:
+            root = peer.session_root(pid, skip=peer.daemon_ancestry())
+        if root is None:
+            if (
+                replace
+            ):  # a takeover from somewhere unreadable must not keep the old pid
+                self.session_pids.pop(agent_id, None)
+        else:
+            self.session_pids[agent_id] = root
+
+    def agent_roots(self) -> dict[str, peer.Root]:
+        return {**self.session_pids, **self.waker.pids}
 
     def close(self) -> None:
         self.conn.close()
@@ -141,6 +174,27 @@ def get_daemon(request: Request) -> Daemon:
     return request.app.state.daemon
 
 
+def refuse_if_in_agent_tree(request: Request, daemon: Daemon) -> None:
+    """Fail closed: the human token over the unix socket must come from outside every
+    registered agent's process tree, and the peer must be identifiable."""
+    pid = request.scope.get("covey_peer_pid")
+    if pid is None:
+        raise CoveyError(
+            403,
+            "human_only",
+            "Cannot tell which process made this call, so the human token is refused.",
+            "Run `covey doctor` from your own terminal.",
+        )
+    agent_id = peer.find_agent(pid, daemon.agent_roots(), skip=peer.daemon_ancestry())
+    if agent_id is not None:
+        raise CoveyError(
+            403,
+            "human_only",
+            f"This call came from inside the process tree of agent {agent_id}.",
+            "Run the `covey` CLI from your own terminal, outside any agent session.",
+        )
+
+
 def caller(request: Request) -> Caller:
     """Resolve the bearer token. 401 if missing or unknown; 403 for the human token over TCP."""
     daemon = get_daemon(request)
@@ -163,6 +217,7 @@ def caller(request: Request) -> Caller:
                 "The human token is accepted only over the unix socket.",
                 "Run the `covey` CLI from your own terminal.",
             )
+        refuse_if_in_agent_tree(request, daemon)
         return Caller("human", daemon.human_id, "human")
     if hmac.compare_digest(digest, daemon.join_hash):
         return Caller("join", None, None)
@@ -390,12 +445,15 @@ def create_app(cfg: Config) -> FastAPI:
 
     @app.post("/v1/agents/register")
     async def register_agent(
-        body: RegisterBody, who: Annotated[Caller, Depends(require("join"))]
+        request: Request,
+        body: RegisterBody,
+        who: Annotated[Caller, Depends(require("join"))],
     ) -> dict:
         daemon = app.state.daemon
         card, token = registry.register(
             daemon.conn, daemon.node.node_id, body.model_dump(exclude_none=True)
         )
+        daemon.note_session(card["agent_id"], request, replace=True)
         await daemon.notify()
         return versioned(card=card, agent_token=token)
 
@@ -412,6 +470,7 @@ def create_app(cfg: Config) -> FastAPI:
 
     @app.post("/v1/agents/{slug}/heartbeat")
     async def heartbeat_agent(
+        request: Request,
         slug: Annotated[str, Path(pattern=SLUG)],
         who: Annotated[Caller, Depends(require("join", "agent", "human"))],
     ) -> dict:
@@ -419,6 +478,8 @@ def create_app(cfg: Config) -> FastAPI:
         not_worker(who)
         own_slug(who, slug)
         result = registry.heartbeat(daemon.conn, slug)
+        if who.kind != "human":
+            daemon.note_session(f"{slug}@{daemon.node.node_id}", request)
         await daemon.notify()
         return versioned(**result)
 
@@ -522,6 +583,7 @@ def create_app(cfg: Config) -> FastAPI:
         not_worker(who)
         own_slug(who, slug)
         result = registry.end_session(daemon.conn, slug, body.reason)
+        daemon.session_pids.pop(who.agent_id, None)
         await daemon.notify()
         return versioned(**result)
 
@@ -546,6 +608,12 @@ def create_app(cfg: Config) -> FastAPI:
         )
         await daemon.notify()
         daemon.waker.kick()
+        if req["status"] == "awaiting_grant" and daemon.human_watchers == 0:
+            rid = req["request_id"]
+            notify.human(
+                f"{req['from_agent']} wants {req['capability']} on {req['to_agent']}."
+                f" Run `covey approve {rid}`."
+            )
         return versioned(request=req)
 
     @app.get("/v1/requests/{request_id}")
@@ -640,9 +708,10 @@ def create_app(cfg: Config) -> FastAPI:
         daemon = app.state.daemon
         pending = router.pending_approvals(daemon.conn)
         if wait and not pending:
-            pending = await daemon.wait_for(
-                lambda: router.pending_approvals(daemon.conn), wait
-            )
+            with daemon.watching():
+                pending = await daemon.wait_for(
+                    lambda: router.pending_approvals(daemon.conn), wait
+                )
         return versioned(requests=pending)
 
     @app.post("/v1/approvals/{request_id}")
@@ -683,8 +752,14 @@ def create_app(cfg: Config) -> FastAPI:
         start = (
             events.current_last_id(daemon) if last_event_id is None else last_event_id
         )
+
+        async def watched() -> AsyncIterator[str]:
+            with daemon.watching():
+                async for frame in events.stream(daemon, start):
+                    yield frame
+
         return StreamingResponse(
-            events.stream(daemon, start),
+            watched(),
             media_type="text/event-stream",
             headers={"Cache-Control": "no-cache"},
         )
@@ -744,6 +819,11 @@ def _bind_tcp(cfg: Config) -> socket.socket:
     return sock
 
 
+def drop_session_pids(daemon: Daemon, agent_ids: list[str]) -> None:
+    for agent_id in agent_ids:
+        daemon.session_pids.pop(agent_id, None)
+
+
 async def _sweeper(daemon: Daemon) -> None:
     """Every sweep_interval_s: apply the liveness timeout, expire due requests, wake waiters."""
     seen: set[str] = set()
@@ -751,7 +831,9 @@ async def _sweeper(daemon: Daemon) -> None:
         await asyncio.sleep(daemon.cfg.sweep_interval_s)
         now = store.now_iso()
         steps = (
-            lambda t=now: registry.sweep(daemon.conn, t, daemon.cfg.liveness_timeout_s),
+            lambda t=now: drop_session_pids(
+                daemon, registry.sweep(daemon.conn, t, daemon.cfg.liveness_timeout_s)
+            ),
             lambda t=now: router.expire_due(daemon.conn, t),
         )
         steps = (
@@ -796,12 +878,17 @@ async def serve(
         cfg.socket_path.unlink(missing_ok=True)  # stale: nothing answered above
         unix_sock = _bind_unix(cfg.socket_path)
         for sock, transport in ((unix_sock, "unix"), (tcp_sock, "tcp")):
-            conf = uvicorn.Config(
-                tag_transport(app, transport),
-                lifespan="off",
-                log_level="warning",
-                access_log=False,
-            )
+            options: dict[str, Any] = {
+                "lifespan": "off",
+                "log_level": "warning",
+                "access_log": False,
+            }
+            tagged = tag_transport(app, transport)
+            if transport == "unix":
+                probe = uvicorn.Config(tagged, **options)
+                probe.load()  # resolves the "auto" protocol to a class
+                options["http"] = peer.peer_protocol(probe.http_protocol_class)
+            conf = uvicorn.Config(tagged, **options)
             server = _Server(conf)
             servers.append(server)
             tasks.append(asyncio.create_task(server.serve(sockets=[sock])))
