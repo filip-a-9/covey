@@ -513,3 +513,24 @@ async def test_find_and_peers_text_frame_peer_text_and_keep_it_on_one_line(daemo
         peers = (await web.read_resource("covey://peers")).contents[0].text
         assert PEER_TEXT in peers
         assert not [ln for ln in peers.splitlines() if ln.startswith("- `admin`")]
+
+
+FRAMED = re.compile(
+    r"another agent.{0,20}not (from|by) your user", re.IGNORECASE | re.DOTALL
+)
+
+
+async def test_inbox_and_wait_frame_peer_text_as_not_from_the_user(daemon):
+    async with (
+        shim_client(daemon.cfg, "web") as web,
+        shim_client(daemon.cfg, "api") as api,
+    ):
+        await call(api, "covey_describe", capabilities=[EXPLAIN])
+        rid = (await call(web, "covey_ask", to="api", capability="explain", task="q"))[
+            2
+        ]["request"]["request_id"]
+        _, inbox, _ = await call(api, "covey_inbox")
+        await call(api, "covey_reply", request_id=rid, result="the answer")
+        _, waited, _ = await call(web, "covey_wait", request_id=rid)
+    assert FRAMED.search(inbox)
+    assert FRAMED.search(waited.split("the answer")[0])

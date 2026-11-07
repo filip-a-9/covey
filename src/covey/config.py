@@ -10,6 +10,7 @@ Environment variables:
                         `log` (log only) (default `auto`)
     COVEY_WAKE_SOCKET_DIR  the one directory a session's messaging socket may live in
                         (default $XDG_RUNTIME_DIR/cc-socks, else /run/user/<uid>/cc-socks)
+    COVEY_MAX_HOPS      delegation depth limit, 0 to 4 (default 4)
     COVEY_IDLE_WAKE     `off` stops the daemon posting to idle sessions' messaging sockets
                         (default on)
 """
@@ -18,6 +19,8 @@ import os
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
+
+MAX_HOPS_LIMIT = 4  # the requests.hops CHECK in store.py
 
 
 class ConfigError(ValueError):
@@ -113,8 +116,19 @@ def load(env: Mapping[str, str] | None = None) -> Config:
         raise ConfigError(
             f"COVEY_IDLE_WAKE={idle_wake!r} is not a mode. Set it to `on` or `off`."
         )
+    raw_hops = env.get("COVEY_MAX_HOPS") or "4"
+    try:
+        max_hops = int(raw_hops)
+    except ValueError:
+        max_hops = -1
+    if not 0 <= max_hops <= MAX_HOPS_LIMIT:
+        raise ConfigError(
+            f"COVEY_MAX_HOPS={raw_hops!r} is out of range. Set it to a number between"
+            f" 0 and {MAX_HOPS_LIMIT} (the database refuses more)."
+        )
     return Config(
         home=home,
+        max_hops=max_hops,
         idle_wake=idle_wake == "on",
         wake_socket_dir=Path(
             env.get("COVEY_WAKE_SOCKET_DIR") or default_wake_socket_dir(env)

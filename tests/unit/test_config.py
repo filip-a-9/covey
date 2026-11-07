@@ -35,3 +35,14 @@ def test_bad_notify_is_refused():
 
 def test_idle_wake_fallback_defaults_to_ten_minutes():
     assert load({}).idle_wake_fallback_s == 600.0
+
+
+@pytest.mark.parametrize("raw", ["5", "-1", "many"])
+def test_max_hops_above_the_schema_limit_is_refused(raw):
+    with pytest.raises(ConfigError):
+        load({"COVEY_MAX_HOPS": raw})
+
+
+def test_max_hops_can_be_lowered():
+    assert load({"COVEY_MAX_HOPS": "2"}).max_hops == 2
+    assert load({}).max_hops == 4

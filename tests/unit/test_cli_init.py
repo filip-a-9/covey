@@ -2,6 +2,7 @@
 
 import json
 import shlex
+import stat
 import sys
 
 import pytest
@@ -260,3 +261,20 @@ def test_a_uv_tool_install_is_not_ephemeral(dirs, hooks_ready, tmp_path, monkeyp
     exe.chmod(0o755)
     monkeypatch.setattr(sys, "argv", [str(exe)])
     assert runner.invoke(app, ["init"]).exit_code == 0
+
+
+def test_write_json_keeps_the_files_mode_and_ignores_a_planted_tmp_symlink(tmp_path):
+    from covey.cli.init import write_json
+
+    target = tmp_path / ".claude.json"
+    target.write_text("{}")
+    target.chmod(0o600)
+    write_json(target, {"a": 1})
+    assert stat.S_IMODE(target.stat().st_mode) == 0o600
+
+    victim = tmp_path / "victim.txt"
+    victim.write_text("orig")
+    (tmp_path / ".claude.json.covey-tmp").symlink_to(victim)
+    write_json(target, {"b": 2})
+    assert victim.read_text() == "orig"
+    assert json.loads(target.read_text()) == {"b": 2}

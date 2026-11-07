@@ -49,14 +49,20 @@ def setting(worker: dict[str, Any], name: str) -> Any:
 
 
 def build_argv(
-    cfg: Config, worker: dict[str, Any], mcp_config: Path, frame: str
+    cfg: Config,
+    worker: dict[str, Any],
+    mcp_config: Path,
+    frame: str,
+    claude: str | None = None,
 ) -> list[str]:
-    """The worker's command line. The task goes on stdin, not here."""
+    """The worker's command line. The task goes on stdin, not here. `claude` is the
+    resolved executable (find_claude): a relative COVEY_CLAUDE would resolve against the
+    worker's cwd."""
     allowed = list(setting(worker, "allowed_tools"))
     # `Edit(docs/**)` is a permission rule for the Edit tool: the tool itself must exist.
     tools = list(dict.fromkeys(rule.partition("(")[0] for rule in allowed))
     return [
-        cfg.claude_bin,
+        claude or cfg.claude_bin,
         "-p",
         "--output-format",
         "json",
@@ -171,7 +177,8 @@ def spawns_since(conn: sqlite3.Connection, agent_id: str, since: datetime) -> in
 
 def find_claude(cfg: Config) -> str | None:
     """The `claude` executable workers run (`COVEY_CLAUDE`, else PATH), or None."""
-    return shutil.which(cfg.claude_bin)
+    found = shutil.which(cfg.claude_bin)
+    return os.path.abspath(found) if found else None
 
 
 def _unavailable(cfg: Config, card: dict[str, Any]) -> tuple[str, str] | None:
@@ -254,9 +261,29 @@ def claim(conn: sqlite3.Connection, cfg: Config, running: set[str]) -> list[Clai
     return claims
 
 
-def recover(conn: sqlite3.Connection, node_id: str) -> list[str]:
-    """At startup: a `working` request has lost its worker (they die with the daemon). It
-    fails with `worker_lost` rather than being re-queued: side effects may have happened."""
+def _kill_orphans(workers_path: Path) -> None:
+    """Kill the process groups of workers a SIGKILLed daemon left behind, and delete their
+    folders (each holds a dead token). The `pid` file is `<pid> <start time>`: a pid that
+    now has another start time was reused and is left alone."""
+    for folder in workers_path.glob("*") if workers_path.is_dir() else ():
+        try:
+            pid, start = (folder / "pid").read_text().split(maxsplit=1)
+            if procs._start_time(int(pid)) == start:
+                os.killpg(int(pid), signal.SIGKILL)  # a worker is its group's leader
+        except (OSError, ValueError):
+            pass
+        shutil.rmtree(folder, ignore_errors=True)
+
+
+def recover(
+    conn: sqlite3.Connection, node_id: str, workers_path: Path | None = None
+) -> list[str]:
+    """At startup: a `working` request has lost its worker. A clean stop kills workers; after
+    a SIGKILL of the daemon they survive, so those recorded under `workers_path` are killed
+    here. The request fails with `worker_lost` rather than being re-queued: side effects
+    may have happened."""
+    if workers_path is not None:
+        _kill_orphans(workers_path)
     rows = conn.execute(
         "SELECT request_id FROM requests WHERE status = 'working'"
     ).fetchall()
@@ -381,7 +408,9 @@ class Waker:
         stderr = b""
         try:
             path = _write_mcp_config(d.cfg, rid, mcp_config(d.cfg, c.slug, token))
-            argv = build_argv(d.cfg, c.worker, path, system_frame(c))
+            argv = build_argv(
+                d.cfg, c.worker, path, system_frame(c), find_claude(d.cfg)
+            )
             try:
                 proc = await asyncio.create_subprocess_exec(
                     *argv,
@@ -400,6 +429,7 @@ class Waker:
             start = procs._start_time(proc.pid)
             if start is not None:
                 self.pids[c.agent_id] = (proc.pid, start)
+                (folder / "pid").write_text(f"{proc.pid} {start}")
             try:
                 stdout, stderr = await asyncio.wait_for(
                     proc.communicate(task_text(c).encode()),

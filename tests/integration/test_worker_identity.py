@@ -209,3 +209,39 @@ def test_worker_ask_parent_is_forced_and_it_can_read_what_it_created(
     assert sub["parent_id"] == docs_request["request_id"]
     got = client.get(f"/v1/requests/{sub['request_id']}", headers=worker)
     assert got.status_code == 200
+
+
+def test_a_worker_reply_rechecks_the_grant(client, daemon, web):
+    from covey.daemon import grants
+
+    registry.create_agent(
+        daemon.conn,
+        daemon.node.node_id,
+        {
+            "slug": "ops",
+            "workdir": "/x",
+            "wakeable": True,
+            "capabilities": [{"name": "deploy", "level": "gated"}],
+        },
+    )
+    node = daemon.node.node_id
+    human = f"human@{node}"
+    g = grants.create_grant(
+        daemon.conn, f"web@{node}", f"ops@{node}", "deploy", "always", human
+    )
+    r = client.post(
+        "/v1/requests",
+        json={"to": "ops", "capability": "deploy", "task": "ship"},
+        headers=web,
+    )
+    assert r.status_code == 201, r.text
+    req = r.json()["request"]
+    worker = auth(daemon.mint_worker_token(req["to_agent"], req["request_id"]))
+    grants.revoke_grant(daemon.conn, g["grant_id"], human)
+    reply = client.post(
+        f"/v1/requests/{req['request_id']}/reply",
+        json={"result": "shipped", "status": "done"},
+        headers=worker,
+    )
+    assert reply.status_code == 403
+    assert reply.json()["error"]["code"] == "grant_revoked"

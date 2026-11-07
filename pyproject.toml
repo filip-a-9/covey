@@ -33,7 +33,8 @@ notify = [
 ]
 
 [build-system]
-requires = ["hatchling"]
+# Exact: the release build must not pull whatever hatchling is newest that day.
+requires = ["hatchling==1.33.0"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]

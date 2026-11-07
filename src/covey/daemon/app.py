@@ -93,7 +93,7 @@ class Daemon:
         self.join_hash = store.hash_token(cfg.join_token_path.read_text().strip())
         self.workers: dict[str, WorkerAuth] = {}  # token hash -> worker
         # Workers die with the daemon, so a `working` request left from before is lost.
-        waker.recover(self.conn, self.node.node_id)
+        waker.recover(self.conn, self.node.node_id, cfg.workers_path)
         self.waker = waker.Waker(self)
         # agent_id -> (pid, start_time) of the process tree its session lives in. In memory,
         # re-derived at startup from the shims' session files.
@@ -653,7 +653,13 @@ def forbidden(message: str, next_step: str) -> CoveyError:
 
 
 def create_app(cfg: Config, ignore_pids: frozenset[int] = frozenset()) -> FastAPI:
-    app = FastAPI(title="coveyd", version=API_VERSION, docs_url=None, redoc_url=None)
+    app = FastAPI(
+        title="coveyd",
+        version=API_VERSION,
+        docs_url=None,
+        redoc_url=None,
+        openapi_url=None,
+    )
     app.state.daemon = Daemon(cfg, ignore_pids)
     app.add_middleware(Limits, cfg=cfg)
 

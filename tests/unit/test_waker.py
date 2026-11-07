@@ -148,3 +148,37 @@ def test_unreadable_output_is_failed_worker_error(stdout):
     out = waker.read_result(stdout)
     assert (out.status, out.result) == ("failed", "worker_error")
     assert out.cost_usd is None
+
+
+def test_the_argv_runs_the_resolved_claude_not_the_configured_name(cfg):
+    args = waker.build_argv(
+        cfg, {}, Path("/w/mcp.json"), "FRAME", claude="/abs/bin/claude"
+    )
+    assert args[0] == "/abs/bin/claude"
+
+
+def test_recover_kills_workers_a_dead_daemon_left_behind(cfg):
+    import os
+    import subprocess
+    import sys
+
+    from covey import procs
+    from covey.daemon import store
+
+    node = store.init_home(cfg)
+    conn = store.connect(cfg.db_path)
+    child = subprocess.Popen(
+        [sys.executable, "-c", "import time; time.sleep(60)"], start_new_session=True
+    )
+    folder = cfg.workers_path / "01JREQ"
+    folder.mkdir(parents=True)
+    (folder / "pid").write_text(f"{child.pid} {procs._start_time(child.pid)}")
+    try:
+        waker.recover(conn, node.node_id, cfg.workers_path)
+        assert child.wait(timeout=10) != 0  # killed by a signal
+        assert not folder.exists()
+    finally:
+        if child.poll() is None:
+            os.killpg(child.pid, 9)
+            child.wait()
+        conn.close()

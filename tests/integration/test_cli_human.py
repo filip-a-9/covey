@@ -559,3 +559,14 @@ def test_forbidden_capability_is_refused_even_with_a_grant(env, tcp, daemon, web
         headers=web,
     )
     assert r.json()["request"]["status"] == "refused"
+
+
+def test_agent_add_refuses_a_workdir_that_contains_covey_home(env, daemon):
+    for bad in (daemon.cfg.home, daemon.cfg.home.parent):
+        cli("agent", "add", "docs", "--workdir", str(bad), "--json", expect=1)
+    assert cli_json("ps")["agents"] == []
+
+
+def test_agent_add_refuses_home_as_the_workdir(env, tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    cli("agent", "add", "docs", "--workdir", str(tmp_path), expect=1)

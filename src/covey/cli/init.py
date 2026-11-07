@@ -19,6 +19,7 @@ import json
 import os
 import shlex
 import shutil
+import stat
 import sys
 from pathlib import Path
 from typing import Annotated, Any
@@ -195,7 +196,16 @@ def merge_mcp(config: dict[str, Any], exe: str) -> str | None:
 def write_json(path: Path, data: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(path.name + ".covey-tmp")
-    tmp.write_text(json.dumps(data, indent=2) + "\n")
+    try:
+        mode = stat.S_IMODE(path.stat().st_mode)  # keep a 0600 .claude.json 0600
+    except FileNotFoundError:
+        mode = None
+    tmp.unlink(missing_ok=True)  # removes a planted symlink itself, never its target
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o666)
+    with os.fdopen(fd, "w") as f:
+        if mode is not None:
+            os.fchmod(f.fileno(), mode)
+        f.write(json.dumps(data, indent=2) + "\n")
     os.replace(tmp, path)
 
 

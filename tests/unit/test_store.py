@@ -126,3 +126,14 @@ def test_a_version_1_database_migrates_and_keeps_its_grants(conn, node):
             "INSERT INTO grants VALUES ('g2', ?, ?, 'x', 'always', NULL, ?, 't', NULL, NULL)",
             (a, b, f"human@{node.node_id}"),
         )
+
+
+@pytest.mark.parametrize("sql", ["UPDATE audit SET event = 'x'", "DELETE FROM audit"])
+def test_audit_rows_cannot_be_changed_or_deleted(conn, sql):
+    with store.transaction(conn):
+        store.audit(conn, "human@x", "a")
+    with pytest.raises(sqlite3.DatabaseError):
+        conn.execute(sql)
+    assert (
+        conn.execute("SELECT count(*) FROM audit WHERE event = 'a'").fetchone()[0] == 1
+    )

@@ -309,3 +309,8 @@ def test_api_yaml_declares_wake_socket_on_the_three_bodies():
     assert schemas["SessionBody"]["required"] == ["session_id"]
     body = SPEC["paths"]["/v1/agents/{slug}/heartbeat"]["post"]["requestBody"]
     assert body["required"] is False
+
+
+def test_the_daemon_does_not_serve_its_openapi_document(daemon):
+    r = httpx.get(f"{daemon.base_url}/openapi.json")
+    assert r.status_code == 404
