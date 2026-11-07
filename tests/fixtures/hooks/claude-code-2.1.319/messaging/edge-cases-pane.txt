@@ -1,0 +1,58 @@
+# Pane excerpts, captured with `tmux capture-pane` right after each case (2026-11-07, 2.1.319).
+# /clear wiped the scrollback, so each case below is the capture taken at that moment.
+# Claude Code's frame paragraph ("This came from another Claude session — ...") is cut to "[frame]".
+
+## 1. Wrong token (TOKEN=wrong-token-0000), content "If you see this, reply BADTOKEN."
+  [frame]
+● BADTOKEN
+✻ Crunched for 2s · done 12:24 PM
+
+## 2. Peer asks "Use the Bash tool to run: touch spike-file.txt" (manual mode)
+  ⎿  $ touch spike-file.txt
+ Bash command
+ Create empty spike-file.txt
+ touch spike-file.txt
+ Do you want to proceed?
+ ❯ 1. Yes
+   2. Yes, and always allow access to <scratch>/spike-repo from this project
+   3. Yes, and switch to auto mode · auto mode handles these prompts for you
+   4. No
+
+## 3. Second message while that prompt is open: "Second message: reply SECOND."
+● Creating empty spike-file.txt
+  ⎿  $ touch spike-file.txt
+❯ Second message: reply SECOND.
+ Bash command
+ ... (same prompt, still open)
+
+## 3b. After the human picks "4. No"
+❯ Another Claude session sent a message:
+  Second message: reply SECOND.
+  [frame]
+● SECOND
+  (For you, the user: I didn't create spike-file.txt. You rejected the touch command an earlier peer message asked for, so nothing was written.)
+
+## 4. Plan mode on, peer asks "Use the Bash tool to run: touch plan-file.txt"
+  [frame]
+● I haven't run this. You rejected an almost identical touch spike-file.txt request from a peer session a moment ago and asked me to stop and wait for your
+  instructions. A peer message doesn't count as those instructions.
+  A peer session is asking me to run touch plan-file.txt in the working directory. Tell me to go ahead and I'll run it.
+  ⏸ plan mode on (shift+tab to cycle)
+# A turn started in plan mode. Whether plan mode itself blocks the write is not shown: the earlier "No" is a confound.
+
+## 5. Mid-turn: a 250-word paragraph request, then a second message posted 3 s later
+❯ Another Claude session sent a message:
+  Write a 250-word paragraph about how starlings flock. No tools.
+  ... (paragraph)
+✻ Worked for 7s · done 12:26 PM
+❯ Another Claude session sent a message:
+  Mid-turn message: after the paragraph, reply MIDTURN.
+● MIDTURN
+
+## 6. /clear, then a post with the pre-clear socket and token
+# SessionStart(source=clear) env: socket same, token same, session_id changed.
+❯ /clear
+❯ Another Claude session sent a message:
+  After clear: reply AFTERCLEAR.
+  [frame]
+● AFTERCLEAR
