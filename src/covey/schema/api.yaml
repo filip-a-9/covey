@@ -987,6 +987,11 @@ components:
         created_by: { $ref: "#/components/schemas/AgentId" }
         created_at: { type: string, format: date-time }
         expires_at: { type: [string, "null"], format: date-time }
+        request_id:
+          type: [string, "null"]
+          description: >-
+            For a `once` grant made by approving a request, that request. The grant applies to it
+            alone and goes when it finishes in any state. Null otherwise.
 
     GrantBody:
       type: object

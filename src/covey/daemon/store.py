@@ -25,7 +25,30 @@ from typing import Any
 from covey.config import Config
 from covey.ids import new_ulid
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
+
+_GRANTS_DDL = """
+CREATE TABLE grants (
+    grant_id    TEXT PRIMARY KEY,
+    requester   TEXT NOT NULL REFERENCES agents (agent_id),
+    target      TEXT NOT NULL REFERENCES agents (agent_id),
+    capability  TEXT NOT NULL,
+    scope       TEXT NOT NULL CHECK (scope IN ('once', 'session', 'always', 'deny')),
+    session_id  TEXT,
+    created_by  TEXT NOT NULL REFERENCES agents (agent_id),
+    created_at  TEXT NOT NULL,
+    expires_at  TEXT,
+    request_id  TEXT REFERENCES requests (request_id),
+    CHECK ((scope = 'session') = (session_id IS NOT NULL))
+);
+"""
+_GRANTS_UNBOUND_INDEX = """
+CREATE UNIQUE INDEX grants_unbound ON grants (requester, target, capability)
+    WHERE request_id IS NULL;
+"""
+_GRANTS_REQUEST_INDEX = """
+CREATE UNIQUE INDEX grants_request ON grants (request_id) WHERE request_id IS NOT NULL;
+"""
 
 DDL = f"""
 PRAGMA journal_mode = WAL;
@@ -78,19 +101,12 @@ CREATE INDEX requests_thread ON requests (thread_id);
 
 -- capability may be '*' only when the human broadened a grant on purpose.
 -- session_id is set exactly when scope is 'session'.
-CREATE TABLE grants (
-    grant_id    TEXT PRIMARY KEY,
-    requester   TEXT NOT NULL REFERENCES agents (agent_id),
-    target      TEXT NOT NULL REFERENCES agents (agent_id),
-    capability  TEXT NOT NULL,
-    scope       TEXT NOT NULL CHECK (scope IN ('once', 'session', 'always', 'deny')),
-    session_id  TEXT,
-    created_by  TEXT NOT NULL REFERENCES agents (agent_id),
-    created_at  TEXT NOT NULL,
-    expires_at  TEXT,
-    UNIQUE (requester, target, capability),
-    CHECK ((scope = 'session') = (session_id IS NOT NULL))
-);
+-- request_id is set on a `once` grant the human gave by approving that request: it applies
+-- to that request only and goes when the request finishes. Other grants leave it NULL.
+{_GRANTS_DDL}
+
+{_GRANTS_UNBOUND_INDEX}
+{_GRANTS_REQUEST_INDEX}
 
 -- Append-only. actor is not a foreign key so the log never blocks a write elsewhere.
 CREATE TABLE audit (
@@ -174,9 +190,35 @@ def migrate(conn: sqlite3.Connection) -> None:
     if version == 0:
         conn.executescript(DDL)
         return
+    if version == 1:
+        _migrate_1_to_2(conn)
+        return
     raise RuntimeError(
         f"No migration from schema version {version} to {SCHEMA_VERSION}."
     )
+
+
+def _migrate_1_to_2(conn: sqlite3.Connection) -> None:
+    """Add `grants.request_id` and replace the table's UNIQUE constraint with partial indexes
+    (SQLite cannot drop a constraint, so the table is rebuilt). Existing grants keep NULL."""
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        conn.execute("ALTER TABLE grants RENAME TO grants_v1")
+        conn.execute(_GRANTS_DDL)
+        conn.execute(
+            "INSERT INTO grants (grant_id, requester, target, capability, scope, session_id,"
+            " created_by, created_at, expires_at) SELECT grant_id, requester, target,"
+            " capability, scope, session_id, created_by, created_at, expires_at"
+            " FROM grants_v1"
+        )
+        conn.execute("DROP TABLE grants_v1")
+        conn.execute(_GRANTS_UNBOUND_INDEX)
+        conn.execute(_GRANTS_REQUEST_INDEX)
+        conn.execute("PRAGMA user_version = 2")
+    except BaseException:
+        conn.execute("ROLLBACK")
+        raise
+    conn.execute("COMMIT")
 
 
 def audit(
