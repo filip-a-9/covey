@@ -22,6 +22,7 @@ import os
 import secrets
 import signal
 import socket
+import sqlite3
 import sys
 import threading
 import time
@@ -76,7 +77,11 @@ class Daemon:
     def __init__(self, cfg: Config, ignore_pids: frozenset[int] = frozenset()):
         self.cfg = cfg
         self.node = store.init_home(cfg)
-        self.conn = store.connect(cfg.db_path)
+        # One connection per thread: FastAPI runs sync handlers in a threadpool, and threads
+        # sharing a connection share its transaction (and Python 3.13 refuses the misuse).
+        self._db_local = threading.local()
+        self._db_conns: list[sqlite3.Connection] = []
+        self._db_lock = threading.Lock()
         self.human_id = f"human@{self.node.node_id}"
         self.human_hash = store.hash_token(cfg.token_path.read_text().strip())
         self.join_hash = store.hash_token(cfg.join_token_path.read_text().strip())
@@ -256,8 +261,22 @@ class Daemon:
     def agent_roots(self) -> dict[str, peer.Root]:
         return {**self.session_pids, **self.waker.pids}
 
+    @property
+    def conn(self) -> sqlite3.Connection:
+        """This thread's connection to the database, opened on first use."""
+        conn = getattr(self._db_local, "conn", None)
+        if conn is None:
+            conn = store.connect(self.cfg.db_path)
+            self._db_local.conn = conn
+            with self._db_lock:
+                self._db_conns.append(conn)
+        return conn
+
     def close(self) -> None:
-        self.conn.close()
+        with self._db_lock:
+            for conn in self._db_conns:
+                conn.close()
+            self._db_conns.clear()
 
 
 def error_body(code: str, message: str, next_step: str) -> dict[str, Any]:
