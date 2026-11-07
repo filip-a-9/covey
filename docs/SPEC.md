@@ -18,6 +18,8 @@ Sources: [A2A adoption, hype and reality (2026)](https://www.glukhov.org/ai-syst
 
 **Recommended name: Covey.** A covey is a small flock of birds that feed and move together. It is short, one word, easy to say, free on PyPI as of today (`pip install covey`, `uvx covey`), and it gives you a whole vocabulary: agents *join the covey*, `covey ps` lists who is around, `coveyd` is the daemon, a cross-machine group is still just a covey. Logo: three small bird silhouettes in a loose triangle.
 
+*Update 2026-11-07: `covey` was taken on PyPI by an empty project by release time, so the package is published as `covey-mesh`. The command, daemon and import name stay `covey`.*
+
 Alternates checked against PyPI today:
 
 | Name | PyPI | Why / why not |
@@ -309,13 +311,13 @@ A slug can be taken over by a new registration only when its current holder is n
 
 Keys: `/` filter, `enter` open a request's full transcript, `g` grants view, `l` full log, `q` quit. Colour is meaning only: green done, amber waiting, red failed or denied, blue the accent for the selected row. The TUI must look good in a 100×30 terminal because that is what the GIF will be recorded in.
 
-**Desktop notification fallback.** If no TUI is open when an approval is needed, the daemon sends an OS notification with the request id. This is optional (`pip install covey[notify]`) so the base install stays dependency-light.
+**Desktop notification fallback.** If no TUI is open when an approval is needed, the daemon sends an OS notification with the request id. This is optional (`pip install covey-mesh[notify]`) so the base install stays dependency-light.
 
 **No web dashboard in v1.** A terminal-native tool feels like infrastructure; a localhost web page feels like a product. The HTTP API and SSE stream exist, so a community web UI is an easy third-party contribution, which is exactly the kind of thing that makes a repo feel alive.
 
 ## Scope: v1, v1.1, v2, non-goals
 
-**v1 ships when the hero demo can be recorded in one take on a fresh machine using only `uv tool install covey && covey init`.** (`uvx` alone can't work: hooks need a `covey` that outlives uv's temporary environment.) Anything not needed for that is cut.
+**v1 ships when the hero demo can be recorded in one take on a fresh machine using only `uv tool install covey-mesh && covey init`.** (`uvx` alone can't work: hooks need a `covey` that outlives uv's temporary environment.) Anything not needed for that is cut.
 
 **v1 (launch):**
 
@@ -414,7 +416,7 @@ Core first because everything else is a client of it; the shim and hooks start o
 
 **The launch is one GIF, one sentence, and a README that answers the three questions every HN commenter will ask in the first ten minutes: how does it wake an idle session, why not A2A, and what can go wrong.** Since you said distribution is not your edge, the plan leans on the artifact doing the talking and on a private beta producing the first wave of honest voices.
 
-**README structure, top to bottom:** the one-liner ("Covey is a local agent mesh: discovery, delegation and permissions for the agents already running on your machine"), the hero GIF, a three-line install (`uv tool install covey && covey init`, open two Claude Code sessions, ask one to ask the other), a "How it works" section with the delivery diagram, "Covey vs A2A vs OpenClaw sub-agents" as a short honest table, the trust model in five sentences, the non-goals, and a "Status" line that says exactly what works and what does not. No badges wall, no emoji headers.
+**README structure, top to bottom:** the one-liner ("Covey is a local agent mesh: discovery, delegation and permissions for the agents already running on your machine"), the hero GIF, a three-line install (`uv tool install covey-mesh && covey init`, open two Claude Code sessions, ask one to ask the other), a "How it works" section with the delivery diagram, "Covey vs A2A vs OpenClaw sub-agents" as a short honest table, the trust model in five sentences, the non-goals, and a "Status" line that says exactly what works and what does not. No badges wall, no emoji headers.
 
 **Private beta (Nov 28 to Dec 7).** Ten to twenty developers who run several Claude Code sessions daily: people from the Claude Code Discord, r/ClaudeAI, OpenClaw's community, and anyone who has starred `claude-mem` or `superpowers`. Ask each for one thing: record their own 30-second GIF of Covey doing something in their setup. Three or four of those in a "Seen in the wild" section on launch day is worth more than any copy you write.
 

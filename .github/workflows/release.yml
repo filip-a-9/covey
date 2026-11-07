@@ -41,7 +41,7 @@ jobs:
     # publisher names this workflow file and this environment.
     environment:
       name: pypi
-      url: https://pypi.org/project/covey/
+      url: https://pypi.org/project/covey-mesh/
     permissions:
       id-token: write # PyPI trusted publishing (OIDC); no stored token
     steps:

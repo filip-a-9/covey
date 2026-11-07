@@ -7,7 +7,7 @@ Covey is a local agent mesh: discovery, delegation and permissions for the agent
 ## Install
 
 ```
-uv tool install covey && covey init --user
+uv tool install covey-mesh && covey init --user
 # open two Claude Code sessions in two repos
 # ask one of them to ask the other
 ```
@@ -15,16 +15,16 @@ uv tool install covey && covey init --user
 The package is not on PyPI yet. Until it is, install from a checkout or a git URL:
 
 ```
-uv tool install --from /path/to/covey covey && covey init --user
-uv tool install --from git+https://github.com/filip-a-9/covey covey && covey init --user
+uv tool install --from /path/to/covey covey-mesh && covey init --user
+uv tool install --from git+https://github.com/filip-a-9/covey covey-mesh && covey init --user
 ```
 
 `covey top` (the terminal UI) needs the `tui` extra, and desktop notifications need the `notify` extra:
-`uv tool install 'covey[tui,notify]'`.
+`uv tool install 'covey-mesh[tui,notify]'`.
 
 `covey init --user` writes the hooks and the MCP entry into your user-level Claude Code files, so every session joins the mesh. `covey init` without `--user` does the same for one project. It writes the absolute path of your `covey` into `.mcp.json`, so do not commit that file.
 
-`uvx covey` alone does not work. The hooks must keep pointing at a `covey` that outlives uv's temporary environment, and `covey init` refuses to run under uvx.
+`uvx` alone does not work. The hooks must keep pointing at a `covey` that outlives uv's temporary environment, and `covey init` refuses to run under uvx.
 
 Five-minute walkthrough: [docs/quickstart.md](docs/quickstart.md).
 

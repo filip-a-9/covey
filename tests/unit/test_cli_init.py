@@ -242,7 +242,7 @@ def test_uv_default_cache_layout_is_recognised_without_the_env_var(
 
 
 def test_a_uv_tool_install_is_not_ephemeral(dirs, hooks_ready, tmp_path, monkeypatch):
-    exe = tmp_path / "share" / "uv" / "tools" / "covey" / "bin" / "covey"
+    exe = tmp_path / "share" / "uv" / "tools" / "covey-mesh" / "bin" / "covey"
     exe.parent.mkdir(parents=True)
     exe.write_text("#!/bin/sh\n")
     exe.chmod(0o755)

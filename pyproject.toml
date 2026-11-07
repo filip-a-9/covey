@@ -1,5 +1,5 @@
 [project]
-name = "covey"
+name = "covey-mesh"
 version = "0.1.0.dev0"
 description = "A local agent mesh: discovery, delegation and permissions for the agents on your machine."
 readme = "README.md"

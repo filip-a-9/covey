@@ -9,7 +9,7 @@ user-scope MCP servers live under the same key in `~/.claude.json`.
 Hook and MCP commands carry the absolute path of the `covey` executable that ran init, since
 Claude Code starts them without the venv or tool directory on PATH. Under `uvx` that
 executable lives in uv's throwaway cache (`<cache>/archive-v0/<hash>/bin/covey`) and
-disappears on a cache clean, so init refuses there and says to `uv tool install covey`.
+disappears on a cache clean, so init refuses there and says to `uv tool install covey-mesh`.
 Re-running init is idempotent: it recognises a covey hook by its `hook <name>` tail and
 rewrites an old bare `covey hook ...` command in place instead of adding a second one.
 """
@@ -34,7 +34,7 @@ HOOKS: dict[str, tuple[str, str | None]] = {
 }
 UVX_REFUSAL = (
     "`covey init` is running from uvx's temporary environment ({exe}), which uv can delete. "
-    "Run `uv tool install covey && covey init` instead."
+    "Run `uv tool install covey-mesh && covey init` instead."
 )
 
 
@@ -105,7 +105,7 @@ def covey_executable() -> str:
             return str(path)
     raise InitError(
         "Could not find the `covey` executable to write into the hooks. "
-        "Run `uv tool install covey && covey init`."
+        "Run `uv tool install covey-mesh && covey init`."
     )
 
 

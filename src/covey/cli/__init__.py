@@ -255,7 +255,7 @@ def top() -> None:
         from covey.tui.app import run  # lazy: Textual is an optional extra
     except ImportError as exc:
         typer.echo(
-            "`covey top` needs the tui extra. Install it with `pip install 'covey[tui]'` "
+            "`covey top` needs the tui extra. Install it with `pip install 'covey-mesh[tui]'` "
             "(or `uv sync --extra tui` in a checkout).",
             err=True,
         )

@@ -16,15 +16,15 @@ Covey itself needs no API key. The Claude Code sessions use their own.
 Covey is not on PyPI yet, so install from a checkout or a git URL:
 
 ```
-uv tool install --from '/path/to/covey[tui,notify]' covey
-uv tool install --from git+https://github.com/filip-a-9/covey covey
+uv tool install --from '/path/to/covey[tui,notify]' covey-mesh
+uv tool install --from git+https://github.com/filip-a-9/covey covey-mesh
 ```
 
-When the package is published, this becomes `uv tool install covey`.
+When the package is published, this becomes `uv tool install covey-mesh` (the package is `covey-mesh`; the command is `covey`).
 
 The extras are optional. `tui` gives you `covey top`, and `notify` gives you desktop notifications for approvals. Without `tui`, `covey top` says so and exits.
 
-Do not use `uvx covey`. The hooks need a `covey` that stays installed, and `covey init` refuses to run from uvx's temporary environment.
+Do not use `uvx`. The hooks need a `covey` that stays installed, and `covey init` refuses to run from uvx's temporary environment.
 
 ## 2. Wire Claude Code to Covey
 
