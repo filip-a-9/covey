@@ -130,7 +130,7 @@ Agents reach the daemon through MCP (Claude Code, OpenClaw, Cursor) or plain HTT
 
 ## Delivery: how an idle agent receives work
 
-**This is the hard technical problem in the whole project, and the part that makes the demo real rather than staged.** An MCP server cannot push a message into a Claude Code session; the session only runs when it is processing a turn. Covey solves it with three delivery paths chosen per request.
+**This is the hard technical problem in the whole project, and the part that makes the demo real rather than staged.** An MCP server cannot push a message into a Claude Code session; the session only runs when it is processing a turn. Covey solves it with four delivery paths chosen per request.
 
 ```text
 DELIVERY DECISION (per request)
@@ -143,6 +143,9 @@ DELIVERY DECISION (per request)
      v                         v                              |
   Queue in target inbox    Spawn headless worker              |
      |                     (claude -p in workdir, budgeted)   |
+     v                         |                              |
+  Wake socket? --yes--> post to it; no inbox read in 30 s     |
+     | no / fallback           |  -> fall through to hooks    |
      v                         |                              |
   Mid-turn? --busy--> PostToolUse hook notes "requests waiting"|
      | idle                    |                              |
@@ -157,6 +160,8 @@ DELIVERY DECISION (per request)
 ```
 
 A live session gets the request at its next quiet moment through hooks; an agent with no session gets a headless worker spawned in its directory; anything else fails fast and tells both the asker and the human.
+
+**Path 0: the messaging socket (live session, idle or busy).** Claude Code (v2.1.224+) gives each session a unix socket in `$CLAUDE_CODE_MESSAGING_SOCKET`; a message posted there starts a turn in an idle session and is queued as the next turn in a busy one. The `SessionStart` hook records the socket path, the shim reports it on register and heartbeat, and the daemon keeps it in memory, never the token. When a request is queued for such a session, the daemon stamps it (so the Stop hook skips it) and posts Covey's frame with the sender, capability and request id but not the task, which the model reads through `covey_inbox`. Reading the inbox is the acknowledgement; a request still unread 30 s later, or a socket that refuses the connection, falls back to paths 1 and 2. `COVEY_IDLE_WAKE=off` turns this path off. It inherits Claude Code's own trust model for the socket (same user, 0600 in a 0700 directory), and Claude Code wraps the message in its own "from another session" frame, which grants no permissions.
 
 **Path 1: the Stop hook (live, idle session).** Claude Code runs `Stop` hooks when the model is about to finish a turn. A hook may respond with `{"decision": "block", "reason": "..."}`, and the reason is handed back to the model as the next thing to act on. `covey hook stop` checks the daemon for pending requests addressed to this agent; if there are any, it blocks the stop with a reason like *"covey: agent `web` is asking you: \<task>. Call `covey_inbox` to see details, do the work, then `covey_reply`."* The session wakes up and handles the request as if the human had typed it. Claude Code passes a `stop_hook_active` flag so the hook can avoid re-blocking in a loop, and Covey adds its own rule: block at most once per pending request (the daemon stamps each request when the hook claims it). *Deferred:* "never when the human has typed in the last few seconds" needs a `UserPromptSubmit` hook to know when they typed. `Stop` only fires at the end of a turn, and block-once plus `stop_hook_active` already prevent loops.
 
