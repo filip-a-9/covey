@@ -1,0 +1,49 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+# A newer push to the same branch or PR makes the older run pointless.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # No desktop notification attempts on runners. tests/conftest.py sets this too, but
+  # `covey up` subprocesses and the CLI steps should agree.
+  COVEY_NOTIFY: log
+
+jobs:
+  check:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Both the action and uv are pinned so a new uv release cannot change lint or test
+      # results under us: ruff and the lockfile are pinned for the same reason. Bump
+      # them together, on purpose. The action is pinned by commit SHA (tag in the comment).
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: "0.12.17"
+          enable-cache: true
+
+      # uv reads .python-version (3.11) and downloads that interpreter itself.
+      - run: uv sync --all-extras --locked
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      # tests/conftest.py points COVEY_CLAUDE at a nonexistent binary and COVEY_NOTIFY at
+      # `log` for every test, so no real `claude` is reached and no env is needed here.
+      - run: uv run pytest -q
