@@ -16,7 +16,7 @@ The package is not on PyPI yet. Until it is, install from a checkout or a git UR
 
 ```
 uv tool install --from /path/to/covey covey && covey init --user
-uv tool install --from git+<git-url> covey && covey init --user
+uv tool install --from git+https://github.com/filip-a-9/covey covey && covey init --user
 ```
 
 `covey top` (the terminal UI) needs the `tui` extra, and desktop notifications need the `notify` extra:

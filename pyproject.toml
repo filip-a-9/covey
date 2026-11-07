@@ -5,6 +5,7 @@ description = "A local agent mesh: discovery, delegation and permissions for the
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
+authors = [{ name = "EDantes" }]
 requires-python = ">=3.11"
 dependencies = [
     "fastapi==0.162.0",
@@ -14,6 +15,10 @@ dependencies = [
     "typer==0.28.0",
     "uvicorn==0.54.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/filip-a-9/covey"
+Issues = "https://github.com/filip-a-9/covey/issues"
 
 [project.scripts]
 covey = "covey.cli:app"

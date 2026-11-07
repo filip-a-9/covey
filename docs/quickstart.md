@@ -17,7 +17,7 @@ Covey is not on PyPI yet, so install from a checkout or a git URL:
 
 ```
 uv tool install --from '/path/to/covey[tui,notify]' covey
-uv tool install --from 'git+<git-url>' covey
+uv tool install --from git+https://github.com/filip-a-9/covey covey
 ```
 
 When the package is published, this becomes `uv tool install covey`.
