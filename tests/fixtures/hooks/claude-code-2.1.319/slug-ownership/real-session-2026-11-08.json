@@ -1,0 +1,17 @@
+{
+  "what": "Two real Claude Code 2.1.319 sessions, one after the other, on a slug the human created with `covey agent add api --workdir <repo>`. Both registers were allowed by the ancestry + workdir rule (no 409 slug_owned).",
+  "setup": "covey init in <repo>; claude --model sonnet --setting-sources project,local --strict-mcp-config --mcp-config <repo>/.mcp.json, started in <repo> from a tmux server (outside any other agent's tree). No prompt sent.",
+  "shim_process": {
+    "argv": "/projects/covey/.venv/bin/covey mcp",
+    "cwd": "<repo>",
+    "parent_chain": ["claude (cwd <repo>)", "tmux: server", "WSL Relay", "SessionLeader", "init-systemd", "1"]
+  },
+  "audit": [
+    {"event": "agent.created", "actor": "human", "detail": {"wakeable": false, "update": false}},
+    {"event": "agent.registered", "actor": "api", "detail": {"kind": "claude-code", "delivery": "hooks", "takeover": true}},
+    {"event": "agent.session_ended", "actor": "api", "detail": {"reason": "shim_exit", "to": "gone"}},
+    {"event": "agent.registered", "actor": "api", "detail": {"kind": "claude-code", "delivery": "hooks", "takeover": true}}
+  ],
+  "covey_ps_after_each_start": "api  claude-code  live  <repo>  explain:open",
+  "human_cli_from_outside_the_session": "allowed (covey ps from a shell not under the session's claude)"
+}
