@@ -29,6 +29,9 @@ fi
 # shellcheck source=lib.sh
 . "$HERE/lib.sh"
 load_env "$DIR"
+# Close the last take's panes first: their `covey top` long-poll keeps the old coveyd draining past
+# `covey down`'s 10 s, and its late exit would delete the new daemon's socket.
+tmux -L covey-demo kill-server 2>/dev/null || true
 "$COVEY_BIN" down >/dev/null 2>&1 || true
 rm -f "$COVEY_HOME"/covey.db "$COVEY_HOME"/covey.db-wal "$COVEY_HOME"/covey.db-shm
 # Rebuild the throwaway repos too: a fix made in a previous take would change the story.
