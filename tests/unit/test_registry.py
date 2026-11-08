@@ -441,10 +441,31 @@ def test_find_why_names_what_matched(conn, node):
 CARDS = json.loads((RANKING / "cards.json").read_text())
 QUERIES = json.loads((RANKING / "queries.json").read_text())
 # Queries token overlap genuinely cannot win (no shared token with the right card).
-KNOWN_MISSES = {
-    "remind me tomorrow morning about the dentist": "remind vs reminders needs stemming",
-    "where is the database schema for payments defined?": "payments vs billing is a synonym",
-}
+KNOWN_MISSES = {}
+
+
+@pytest.mark.parametrize(
+    ("word", "stem"),
+    [
+        ("reminding", "remind"),
+        ("reminded", "remind"),
+        ("reminder", "remind"),
+        ("ordering", "order"),
+        ("browser", "brows"),
+        ("seed", "seed"),
+        ("sing", "sing"),
+    ],
+)
+def test_stem_strips_one_suffix_and_keeps_a_four_letter_root(word, stem):
+    assert registry._stem(word) == stem
+
+
+def test_tokens_give_word_forms_the_same_stem():
+    assert set(registry._tokens("reminders remind reminding reminded")) == {"remind"}
+
+
+def test_tokens_expand_a_synonym_through_the_same_stem():
+    assert set(registry._tokens("payments")) == {"payment", "bill"}
 
 
 @pytest.fixture
