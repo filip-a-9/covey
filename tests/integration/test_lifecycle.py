@@ -70,6 +70,49 @@ def test_serve_replaces_a_stale_socket_file(short_home):
     assert not cfg.socket_path.exists()
 
 
+def test_serve_exit_leaves_the_socket_a_newer_daemon_bound(short_home):
+    import asyncio
+
+    from covey.config import Config
+    from covey.daemon.app import _bind_unix, serve
+
+    cfg = Config(home=short_home / "h", port=free_port())
+    cfg.home.mkdir(mode=0o700)
+
+    async def go():
+        ready, stop = asyncio.Event(), asyncio.Event()
+        task = asyncio.create_task(serve(cfg, ready=ready, stop=stop))
+        await asyncio.wait_for(ready.wait(), 10)
+        # A newer daemon takes the path while A is still draining.
+        cfg.socket_path.unlink()
+        newer = _bind_unix(cfg.socket_path)
+        try:
+            stop.set()
+            await asyncio.wait_for(task, 10)
+            return cfg.socket_path.exists()
+        finally:
+            newer.close()
+
+    assert asyncio.run(go()), "the exiting daemon deleted the newer daemon's socket"
+
+
+def test_serve_that_never_bound_leaves_the_socket_alone(short_home):
+    import asyncio
+
+    from covey.config import Config
+    from covey.daemon.app import serve
+
+    cfg = Config(home=short_home / "h", port=free_port())
+    cfg.home.mkdir(mode=0o700)
+    cfg.socket_path.write_text("someone else's")
+    with socket.socket() as blocker:
+        blocker.bind(("127.0.0.1", cfg.port))
+        blocker.listen()
+        with pytest.raises(SystemExit):
+            asyncio.run(serve(cfg))
+    assert cfg.socket_path.read_text() == "someone else's"
+
+
 def test_serve_stop_removes_socket(daemon):
     # the fixture teardown stops it; here we only check the socket is there while running
     assert os.path.exists(daemon.socket_path)
