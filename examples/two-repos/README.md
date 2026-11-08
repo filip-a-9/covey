@@ -29,9 +29,8 @@ rehearsal, accept the trust dialogs in the `api` and `web` panes, then run `clau
 (`$DEMO_CLAUDE`), type the prompt, and press `a` in the `covey top` pane when the approval
 appears. Panes: `Alt+a` api, `Alt+w` web, `Alt+t` `covey top`.
 
-If vhs would download its own browser into `~/.cache/rod` and you do not want that, run `record.sh` with
-`HOME=<other dir>` (with the browser seeded in `<other dir>/.cache/rod/browser/`) and
-`DEMO_REAL_HOME=$HOME`; the tape gives the recorded shell the real `HOME` back.
+vhs looks for a browser named `chromium` (or `chrome`, `google-chrome`) on `PATH` before it downloads
+its own into `~/.cache/rod`, so a `chromium` link in `DEMO_TOOLS_BIN` is enough (see below).
 
 To re-record after a UI change, run `./record.sh <dir>` again. Each take wipes the daemon
 database (so an old grant or request can't change what is on screen), rebuilds the two repos and runs `setup.sh`.
@@ -59,48 +58,53 @@ in a pane during the first `--dry` rehearsal.
 ## Recording from scratch
 
 Tools go in the repo's gitignored `.claude/demo-tools/bin` (no sudo, no package manager) and are
-deleted after the recording. Then `export DEMO_TOOLS_BIN=$PWD/.claude/demo-tools/bin`.
-Always check the hash before unpacking.
+deleted after the recording. Check each hash before unpacking. The ffmpeg and Chromium hashes are
+the ones seen on 2026-11-08; neither publisher posts a SHA-256.
 
 | Tool | Version | URL | SHA-256 |
 |---|---|---|---|
 | vhs | v0.12.1 | `https://github.com/charmbracelet/vhs/releases/download/v0.12.1/vhs_0.12.1_Linux_x86_64.tar.gz` | `eb33787a5b1cebf91fe0b18bd231e2d71d36c1ff4babd99ddac1a6ab411efd10` |
 | ttyd | 1.7.7 | `https://github.com/tsl0922/ttyd/releases/download/1.7.7/ttyd.x86_64` | `8a217c968aba172e0dbf3f34447218dc015bc4d5e59bf51db2f2cd12b7be4f55` |
-| ffmpeg | 6.0.1 static | `https://johnvansickle.com/ffmpeg/old-releases/ffmpeg-6.0.1-amd64-static.tar.xz` | UNVERIFIED: compute with sha256sum after download (the site publishes only an md5, and none for old releases) |
-| chrome-headless-shell | 157.0.8103.38 | `https://storage.googleapis.com/chrome-for-testing-public/157.0.8103.38/linux64/chrome-headless-shell-linux64.zip` | UNVERIFIED: compute with sha256sum after download (Google publishes none); URL layout unchecked, confirm on first run |
+| ffmpeg | 6.0.1 static | `https://johnvansickle.com/ffmpeg/old-releases/ffmpeg-6.0.1-amd64-static.tar.xz` | `28268bf402f1083833ea269331587f60a242848880073be8016501d864bd07a5` |
+| chrome-headless-shell | 157.0.8103.38 | `https://storage.googleapis.com/chrome-for-testing-public/157.0.8103.38/linux64/chrome-headless-shell-linux64.zip` | `deafffa74660b34853a4119c361fd427ac8c9fcb62db51ddb8a797cd83a4ba2d` |
 
 ```
-T=.claude/demo-tools; mkdir -p $T/bin $T/dl
-curl -L -o $T/dl/vhs.tar.gz <vhs URL>; echo "<sha>  $T/dl/vhs.tar.gz" | sha256sum -c -
-tar -xzf $T/dl/vhs.tar.gz -C $T/bin vhs
-curl -L -o $T/bin/ttyd <ttyd URL>; echo "<sha>  $T/bin/ttyd" | sha256sum -c -; chmod +x $T/bin/ttyd
-tar -xJf <ffmpeg archive> --strip-components=1 -C $T/bin --wildcards '*/ffmpeg'
-unzip $T/dl/chrome-headless-shell-linux64.zip -d $T/chromium
+T=$PWD/.claude/demo-tools; mkdir -p $T/bin $T/dl
+curl -fL -o $T/dl/vhs.tar.gz <vhs URL>          # likewise ttyd, ffmpeg.tar.xz, chs.zip
+echo "<sha>  $T/dl/vhs.tar.gz" | sha256sum -c -   # one line per download
+tar -xzf $T/dl/vhs.tar.gz -C $T/bin --strip-components=1 vhs_0.12.1_Linux_x86_64/vhs
+install -m755 $T/dl/ttyd $T/bin/ttyd
+tar -xJf $T/dl/ffmpeg.tar.xz -C $T/bin --strip-components=1 --wildcards '*/ffmpeg' '*/ffprobe'
+unzip -q $T/dl/chs.zip -d $T/chromium
+ln -s $T/chromium/chrome-headless-shell-linux64/chrome-headless-shell $T/bin/chromium
+export DEMO_TOOLS_BIN=$T/bin
 ```
 
-Chromium: vhs 0.12.1 downloads its own into `~/.cache/rod` and ignores `rod=bin=` and
-`XDG_CACHE_HOME`. Give it a scratch HOME whose `.cache/rod` points at the Chromium above:
-
-```
-mkdir -p /tmp/covey-rec-home/.cache && ln -s "$PWD/.claude/demo-tools/chromium" /tmp/covey-rec-home/.cache/rod
-```
-
-The directory layout rod expects inside (e.g. `browser/<revision>/chrome`) is not confirmed; check
-it on the first run. Record with `HOME=/tmp/covey-rec-home DEMO_REAL_HOME=$HOME`.
+vhs finds `chromium` on `PATH` (record.sh puts `DEMO_TOOLS_BIN` first) and downloads nothing.
 
 Short paths: `DEMO_HOME=/tmp/covey-demo-home` and `<dir>=$DEMO_HOME/code`. A long path (a scratchpad
-directory) overflows the AF_UNIX socket path limit and the daemon will not start.
+directory) overflows the AF_UNIX socket path limit and the daemon will not start. Keep `DEMO_HOME`
+outside any checkout that has its own `CLAUDE.md`: Claude Code reads every parent directory's.
 
 Fresh Claude Code home, once:
 
-1. `./setup.sh $DEMO_HOME/code` then `./record.sh $DEMO_HOME/code --dry` (a rehearsal; it counts as a take).
-2. `/login` in a pane; paste the OAuth code with `tmux -L covey-demo send-keys -t covey-demo:0.<pane> '<code>' Enter`.
-3. Click through the first-run screens, then the folder-trust dialogs for `api` and `web`.
-4. Record: `HOME=/tmp/covey-rec-home DEMO_REAL_HOME=$HOME DEMO_HOME=/tmp/covey-demo-home CLAUDE_CMD="claude --model sonnet" ./record.sh $DEMO_HOME/code`
+1. `./setup.sh $DEMO_HOME/code`.
+2. Log in: copy `~/.claude/.credentials.json` to `$DEMO_HOME/.claude/` (mode 600), or run `/login`
+   in a pane and paste the code with `tmux -L covey-demo send-keys -t covey-demo:demo.<pane> '<code>' Enter`.
+3. Skip the first-run screens and trust both repos: write `$DEMO_HOME/.claude.json` with
+   `"hasCompletedOnboarding": true` and, under `"projects"`, `"hasTrustDialogAccepted": true` for
+   `$DEMO_HOME/code/api` and `$DEMO_HOME/code/web`.
+4. Keep auto mode out of the recording: `$DEMO_HOME/.claude/settings.json` with
+   `{"permissions": {"defaultMode": "default"}, "env": {"DISABLE_AUTOUPDATER": "1"}}`. The updater
+   would otherwise download a new build into `$DEMO_HOME` (1.4 GB in a `/tmp` tmpfs filled the disk
+   mid-take). Claude Code 2.1.319 still asks once whether to make
+   auto mode the default; run `layout.sh`, start `$DEMO_CLAUDE` in both panes, answer "No, keep manual
+   mode", quit. Starting a session without a prompt costs nothing and is not a take.
+5. Record: `DEMO_HOME=/tmp/covey-demo-home CLAUDE_CMD="claude --model sonnet" ./record.sh $DEMO_HOME/code`
 
 Spend: 3 takes per `<dir>`, rehearsals included; reset by deleting `<dir>/.takes`.
 
-Clean up afterwards: `rm -rf .claude/demo-tools /tmp/covey-rec-home /tmp/covey-demo-home`
+Clean up afterwards: `rm -rf .claude/demo-tools /tmp/covey-demo-home`
 
 Acceptance, all of:
 
