@@ -1,4 +1,5 @@
 import json
+import os
 import sqlite3
 import stat
 
@@ -89,7 +90,8 @@ CREATE TABLE grants (
 """
 
 
-def test_a_version_1_database_migrates_and_keeps_its_grants(conn, node):
+def make_v1(conn, node) -> tuple[str, str]:
+    """Turn a fresh database back into schema v1 holding one grant, g1, from a to b."""
     from tests.conftest import add_agent
 
     a = add_agent(conn, node, "a", [("x", "gated")])
@@ -103,6 +105,11 @@ def test_a_version_1_database_migrates_and_keeps_its_grants(conn, node):
         (a, b, f"human@{node.node_id}"),
     )
     conn.execute("PRAGMA user_version = 1")
+    return a, b
+
+
+def test_a_version_1_database_migrates_and_keeps_its_grants(conn, node):
+    a, b = make_v1(conn, node)
 
     store.migrate(conn)
 
@@ -126,6 +133,51 @@ def test_a_version_1_database_migrates_and_keeps_its_grants(conn, node):
             "INSERT INTO grants VALUES ('g2', ?, ?, 'x', 'always', NULL, ?, 't', NULL, NULL)",
             (a, b, f"human@{node.node_id}"),
         )
+
+
+def test_migrating_a_version_1_database_first_backs_it_up(cfg, conn, node):
+    make_v1(conn, node)
+
+    store.migrate(conn)
+
+    bak = cfg.db_path.with_name("covey.db.v1.bak")
+    assert stat.S_IMODE(bak.stat().st_mode) == 0o600
+    old = sqlite3.connect(bak)
+    try:
+        assert old.execute("PRAGMA user_version").fetchone()[0] == 1
+        assert old.execute("SELECT grant_id FROM grants").fetchall() == [("g1",)]
+    finally:
+        old.close()
+
+
+def test_a_new_database_is_not_backed_up(tmp_path):
+    c = store.connect(tmp_path / "covey.db")
+    store.migrate(c)
+    c.close()
+    assert not list(tmp_path.glob("*.bak"))
+
+
+def test_an_existing_backup_is_never_overwritten(cfg, conn, node):
+    make_v1(conn, node)
+    bak = cfg.db_path.with_name("covey.db.v1.bak")
+    bak.write_bytes(b"the backup from the first attempt")
+
+    store.migrate(conn)
+
+    assert bak.read_bytes() == b"the backup from the first attempt"
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root writes into any directory")
+def test_a_failed_backup_stops_the_migration(cfg, conn, node):
+    make_v1(conn, node)
+    home = cfg.db_path.parent
+    home.chmod(0o500)
+    try:
+        with pytest.raises(OSError):
+            store.migrate(conn)
+    finally:
+        home.chmod(0o700)
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == 1
 
 
 @pytest.mark.parametrize("sql", ["UPDATE audit SET event = 'x'", "DELETE FROM audit"])

@@ -2,6 +2,12 @@
 
 All notable changes are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- Before a schema migration, coveyd copies the database to `covey.db.v<N>.bak` beside it, where N is the old schema version. The copy is readable only by you, and an existing one is never overwritten. To go back to the older covey: run `covey down`, copy `covey.db.v<N>.bak` over `covey.db`, delete `covey.db-wal` and `covey.db-shm`, then install the older version.
+
 ## [0.2.0] - 2026-11-08
 
 ### Changed

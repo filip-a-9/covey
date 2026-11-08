@@ -15,6 +15,7 @@ import os
 import secrets
 import socket
 import sqlite3
+import sys
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -190,11 +191,34 @@ def migrate(conn: sqlite3.Connection) -> None:
     if version == 0:
         conn.executescript(DDL)
         return
+    _backup(conn, version)
     if version == 1:
         _migrate_1_to_2(conn)
         return
     raise RuntimeError(
         f"No migration from schema version {version} to {SCHEMA_VERSION}."
+    )
+
+
+def _backup(conn: sqlite3.Connection, version: int) -> None:
+    """Copy the database to `<db>.v<version>.bak` before a one-way migration, so an older
+    covey can be restored. Mode 0600 (it holds token hashes). An existing backup is kept:
+    it is the one from before the first attempt."""
+    db = Path(conn.execute("PRAGMA database_list").fetchone()[2])  # main db file
+    dest = db.with_name(f"{db.name}.v{version}.bak")
+    try:
+        fd = os.open(dest, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    except FileExistsError:
+        return
+    os.close(fd)
+    target = sqlite3.connect(dest)
+    try:
+        conn.backup(target)
+    finally:
+        target.close()
+    print(
+        f"covey: backed up schema v{version} database to {dest} before migrating",
+        file=sys.stderr,
     )
 
 
