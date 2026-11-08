@@ -208,19 +208,22 @@ A wakeable agent's card may also carry an optional `worker` block, `{"allowed_to
 | --- | --- |
 | `POST /v1/agents/register` | Create or refresh an agent; body is the card |
 | `POST /v1/agents` | Pre-register an agent with no session and set its `worker` block (`covey agent add`); *human* |
-| `POST /v1/agents/{slug}/heartbeat` | Update liveness; shim calls it every 20 s while connected; needs that agent's own token |
+| `POST /v1/agents/{slug}/heartbeat` | Update liveness; shim calls it every 20 s while connected; needs that agent's own token (or the human's), never the join token |
+| `PUT /v1/agents/{slug}/session` | Attach the caller's Claude Code `session_id` and mark it live; ends the previous session's `session` grants (SessionStart hook); needs that agent's own token |
+| `DELETE /v1/agents/{slug}/session` | End the session; liveness becomes `wakeable` or `gone` and a later heartbeat does not revive it (SessionEnd hook); needs that agent's own token |
+| `POST /v1/agents/{slug}/inbox/stop-claim` | Claim `queued` requests not yet offered by the Stop hook and mark them `delivered` (Stop hook); needs that agent's own token |
 | `GET /v1/agents?need=...&capability=...` | Discovery; same ranking as `covey_find` |
 | `POST /v1/requests` | Create a request (`covey_ask`) |
-| `GET /v1/requests/{id}?wait=30` | Long-poll a request's status (`covey_wait`) |
-| `GET /v1/agents/{slug}/inbox` | Pending requests for one agent |
+| `GET /v1/requests/{id}?wait=30` | Long-poll a request's status (`covey_wait`); `wait` is seconds, 0 to 600, default 0; returns when the request is final or `needs_input`, or the current state on timeout |
+| `GET /v1/agents/{slug}/inbox?status=...&peek=true` | Pending requests for one agent; reading its own inbox moves `queued` to `delivered` unless `peek=true` |
 | `POST /v1/requests/{id}/reply` | Deliver a result |
 | `GET /v1/grants`, `POST /v1/grants`, `DELETE /v1/grants/{id}` | Grant management; `POST` and `DELETE` are *human* |
-| `GET /v1/approvals?wait=30` | Long-poll for pending approval prompts; what the TUI subscribes to. An approval is a request in `awaiting_grant`, identified by its `request_id` |
+| `GET /v1/approvals?wait=30` | Long-poll for pending approval prompts; what the TUI subscribes to. An approval is a request in `awaiting_grant`, identified by its `request_id`. `wait` is seconds, 0 to 600, default 0; returns at once if any are pending. An open long-poll counts as a human watcher; *human* |
 | `POST /v1/approvals/{request_id}` | Answer an approval with a scope (`once`, `session`, `always`, `deny`); *human*. What `covey approve`, `covey deny` and the TUI call |
 | `PUT /v1/agents/{slug}/card` | Update the descriptive parts of a card (`covey_describe`, `covey describe`); an agent may update only its own card |
 | `GET /v1/whoami` | The caller's own card, node id and liveness (`covey_whoami`) |
 | `GET /v1/log?thread=...&since=...` | Audit and transcript queries |
-| `GET /v1/events` | Server-sent events stream of everything above; the TUI's live feed |
+| `GET /v1/events` | Server-sent events stream of everything above; the TUI's live feed; *human* |
 
 **Three kinds of token.** This is the whole of v1 authentication.
 
@@ -228,7 +231,7 @@ A wakeable agent's card may also carry an optional `worker` block, `{"allowed_to
 | --- | --- | --- |
 | Human | `~/.covey/token`, created on first run, mode 0600 | Everything, but only over the unix socket and only when the ancestry check passes |
 | Join | `~/.covey/join-token`, created on first run, mode 0600 | Register an agent; nothing else. A heartbeat needs the agent token |
-| Agent | Minted by the daemon when an agent registers, returned once, kept in the shim's memory; the daemon stores only its hash | Act as that one agent: find, ask, wait, read its own inbox, reply, describe its own card, heartbeat. Never grant endpoints |
+| Agent | Minted by the daemon when an agent registers, returned once, kept in the shim's memory; the daemon stores only its hash | Act as that one agent: find, ask, wait, read its own inbox, reply, describe its own card, heartbeat, attach and end its own session, claim its inbox for the Stop hook. Never grant endpoints |
 
 A slug can be taken over by a new registration only when its current holder is not `live`; registering a slug that is live is refused, so one session cannot impersonate another that is running. Re-registering mints a new agent token and invalidates the old one.
 

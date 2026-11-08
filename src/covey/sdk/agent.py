@@ -163,6 +163,39 @@ class Agent:
         params = {"need": need, "capability": capability, "limit": limit}
         return self.call("GET", "/v1/agents", params=params)["matches"]
 
+    def describe(
+        self,
+        summary: str | None = None,
+        tags: list[str] | None = None,
+        capabilities: list[dict[str, Any]] | None = None,
+        instructions: str | None = None,
+    ) -> dict[str, Any]:
+        """Update this agent's card on the daemon; returns the card the daemon now holds.
+
+        `None` leaves a field alone. `capabilities` replaces the whole list ([] clears it).
+        The edit also lands in the local card, so a later register() keeps it.
+        """
+        fields = {
+            "summary": summary,
+            "tags": tags,
+            "capabilities": capabilities,
+            "instructions": instructions,
+        }
+        update = {k: v for k, v in fields.items() if v is not None}
+        if not update:
+            raise DaemonError(
+                400,
+                "bad_request",
+                "Nothing to change: describe() got no fields.",
+                "Pass summary, tags, capabilities and/or instructions.",
+            )
+        card = self.call("PUT", f"/v1/agents/{self.slug}/card", json=update)["card"]
+        with self._lock:
+            for key in fields:
+                if key in card:
+                    self._card[key] = card[key]
+        return card
+
     def ask(self, to: str, task: str, capability: str, **extra: Any) -> dict[str, Any]:
         """Create a request (extra: context, thread_id, parent_id, timeout_s); returns it."""
         body = {"to": to, "task": task, "capability": capability, **extra}

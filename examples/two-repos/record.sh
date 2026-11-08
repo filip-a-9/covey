@@ -25,11 +25,6 @@ if [ "$takes" -ge "$MAX_TAKES" ]; then
   echo "Each take runs real Claude Code sessions. To allow more, delete $DIR/.takes." >&2
   exit 1
 fi
-echo $((takes + 1)) > "$DIR/.takes"
-mode=record
-[ "$DRY" -eq 1 ] && mode=dry
-echo "$(date -u '+%Y-%m-%dT%H:%M:%SZ') take $((takes + 1))/$MAX_TAKES $mode" >> "$DIR/takes.log"
-
 # Fresh state per take: an `always` grant or last take's requests would change what is on screen.
 # shellcheck source=lib.sh
 . "$HERE/lib.sh"
@@ -39,6 +34,13 @@ rm -f "$COVEY_HOME"/covey.db "$COVEY_HOME"/covey.db-wal "$COVEY_HOME"/covey.db-s
 # Rebuild the throwaway repos too: a fix made in a previous take would change the story.
 rm -rf "$DIR/api" "$DIR/web"
 bash "$HERE/setup.sh" "$DIR" >/dev/null
+
+# Count the take only now: setup starts no claude and costs nothing, so a setup failure
+# must not use one up. The cap check above still runs first.
+echo $((takes + 1)) > "$DIR/.takes"
+mode=record
+[ "$DRY" -eq 1 ] && mode=dry
+echo "$(date -u '+%Y-%m-%dT%H:%M:%SZ') take $((takes + 1))/$MAX_TAKES $mode" >> "$DIR/takes.log"
 
 if [ "$DRY" -eq 1 ]; then
   bash "$HERE/layout.sh" "$DIR"

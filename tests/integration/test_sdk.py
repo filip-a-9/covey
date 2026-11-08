@@ -126,3 +126,66 @@ def test_example_agent_answers_a_request(daemon, asker):
     finally:
         agent.stop()
         thread.join(5)
+
+
+def test_describe_changes_how_find_ranks_the_agent(daemon, asker):
+    worker = make_agent(daemon, "worker")
+    other = make_agent(daemon, "other", tags=["billing"])
+    try:
+        worker.register()
+        other.register()
+        need = "Serbian legal translation"
+        before = [m["card"]["slug"] for m in asker.find(need=need) if m["why"]]
+        assert "worker" not in before
+        card = worker.describe(summary="Serbian legal translation of documents")
+        assert card["summary"] == "Serbian legal translation of documents"
+        slugs = [m["card"]["slug"] for m in asker.find(need=need)]
+        assert slugs[0] == "worker"
+    finally:
+        worker.close()
+        other.close()
+
+
+def test_describe_returns_the_card_and_survives_register(daemon, asker):
+    worker = make_agent(daemon, "worker")
+    try:
+        card = worker.describe(tags=["i18n"])
+        assert card["tags"] == ["i18n"]
+        assert card["summary"] == "agent worker"
+        ended = httpx.request(
+            "DELETE",
+            f"{daemon.base_url}/v1/agents/worker/session",
+            json={"reason": "test"},
+            headers={"Authorization": f"Bearer {worker.token}"},
+        )
+        assert ended.status_code < 300
+        worker.token = None
+        worker.register()
+        found = {m["card"]["slug"]: m["card"] for m in asker.find(need="i18n")}
+        assert found["worker"]["tags"] == ["i18n"]
+    finally:
+        worker.close()
+
+
+def test_describe_with_nothing_is_refused_before_any_request(daemon):
+    worker = make_agent(daemon, "worker")
+    try:
+        with pytest.raises(DaemonError) as exc:
+            worker.describe()
+        assert exc.value.next_step
+        assert worker.token is None
+    finally:
+        worker.close()
+
+
+def test_describe_refused_by_the_daemon_leaves_the_local_card(daemon):
+    worker = make_agent(daemon, "worker")
+    try:
+        before = [dict(c) for c in worker._card["capabilities"]]
+        with pytest.raises(DaemonError) as exc:
+            worker.describe(capabilities=[{"name": "x", "level": "bogus"}])
+        assert exc.value.status == 400
+        assert exc.value.next_step
+        assert worker._card["capabilities"] == before
+    finally:
+        worker.close()
