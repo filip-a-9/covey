@@ -1,5 +1,4 @@
-"""SessionStart: report the new session id, and nudge the model to describe itself unless
-its card is already filled in."""
+"""SessionStart: report the new session id, and tell the model its agent name."""
 
 import contextlib
 from typing import Any
@@ -8,10 +7,7 @@ from covey.hooks.client import HookContext
 from covey.mcp.identity import write_wake_file
 from covey.procs import _start_time
 
-NUDGE = (
-    "You are agent `{slug}` in the covey. Call `covey_describe` once you know what this "
-    "repo does. Other agents may ask you for help."
-)
+STARTUP = "You are agent `{slug}` in the covey. Other agents may ask you for help."
 
 CARD_SET = (
     "You are agent `{slug}` in the covey; your card says: {summary!r}. Other "
@@ -34,8 +30,9 @@ def _leave_wake_socket(ctx: HookContext) -> str | None:
 
 
 def _context_line(ctx: HookContext) -> str:
-    """The short line when the card has a summary and a capability, else the nudge. Any
-    failure reading the card falls back to the nudge: a hook never breaks session start."""
+    """The line quoting the card when it has a summary and a capability, else the plain
+    startup line. Any failure reading the card falls back to it: a hook never breaks
+    session start."""
     if ctx.client is not None:
         try:
             card = ctx.client.call("GET", "/v1/whoami")["card"]
@@ -45,12 +42,12 @@ def _context_line(ctx: HookContext) -> str:
             return CARD_SET.format(
                 slug=ctx.slug, summary=" ".join(card["summary"].split())
             )
-    return NUDGE.format(slug=ctx.slug)
+    return STARTUP.format(slug=ctx.slug)
 
 
 def run(payload: dict[str, Any], ctx: HookContext) -> dict[str, Any]:
     """`ctx.client` is None at startup, when the shim has not written its file yet: the
-    nudge still goes out, with the slug the shim will derive."""
+    startup line still goes out, with the slug the shim will derive."""
     socket = _leave_wake_socket(ctx)
     if ctx.client is not None:
         session_id = payload.get("session_id")

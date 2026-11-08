@@ -369,7 +369,7 @@ def build_server(shim: Shim) -> MCPServer:
     @mcp.tool(
         description="Tell other agents what this repo and agent are about: a one-line "
         "summary, tags, and capabilities (each {name, level}, level open, gated or "
-        "forbidden). Use it right after you understand the repo you are working in."
+        "forbidden). Use it when your card is empty or wrong (see covey_whoami)."
     )
     async def covey_describe(
         summary: str | None = None,

@@ -78,7 +78,7 @@ def _run(event: str, as_json: bool, *, starting: bool = False) -> None:
 
 @hook_app.command("session-start")
 def session_start(as_json: JsonOpt = False) -> None:
-    """SessionStart: report the session id and nudge the model."""
+    """SessionStart: report the session id and tell the model its name."""
     _run("session-start", as_json, starting=True)
 
 

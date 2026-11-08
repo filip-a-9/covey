@@ -39,7 +39,7 @@ def request(frm="web", task="run the tests", status="queued", cap="run_tests"):
     }
 
 
-def test_session_start_reports_the_session_id_and_nudges():
+def test_session_start_reports_the_session_id_and_names_the_agent():
     fake = FakeDaemon()
     out = session_start.run(
         payload("fresh", "01-SessionStart.json"), HookContext("api", fake)
@@ -56,7 +56,7 @@ def test_session_start_reports_the_session_id_and_nudges():
     hso = out["hookSpecificOutput"]
     assert hso["hookEventName"] == "SessionStart"
     assert "agent `api`" in hso["additionalContext"]
-    assert "covey_describe" in hso["additionalContext"]
+    assert "covey_describe" not in hso["additionalContext"]
 
 
 class CardDaemon(FakeDaemon):
@@ -95,11 +95,11 @@ def test_session_start_frames_the_summary_as_the_cards_claim():
     assert "your card says" in text
 
 
-def test_session_start_with_a_filled_card_says_it_is_set_instead_of_nudging():
+def test_session_start_with_a_filled_card_says_it_is_set_instead_of_the_startup_line():
     text = start_context(CardDaemon(FILLED))
     assert "agent `api`" in text
     assert FILLED["summary"] in text
-    assert text != session_start.NUDGE.format(slug="api")
+    assert text != session_start.STARTUP.format(slug="api")
     assert "covey_describe" not in text
 
 
@@ -111,20 +111,27 @@ def test_session_start_with_a_filled_card_says_it_is_set_instead_of_nudging():
     ],
     ids=["no-summary", "no-capabilities"],
 )
-def test_session_start_with_an_unfinished_card_still_nudges(card):
-    assert start_context(CardDaemon(card)) == session_start.NUDGE.format(slug="api")
+def test_session_start_with_an_unfinished_card_gets_the_startup_line(card):
+    text = start_context(CardDaemon(card))
+    assert text == session_start.STARTUP.format(slug="api")
+    assert "agent `api`" in text
+    assert "covey_describe" not in text
 
 
-def test_session_start_still_nudges_when_whoami_fails():
+def test_session_start_gets_the_startup_line_when_whoami_fails():
     fake = CardDaemon(FILLED, whoami_fails=True)
-    assert start_context(fake) == session_start.NUDGE.format(slug="api")
+    text = start_context(fake)
+    assert text == session_start.STARTUP.format(slug="api")
+    assert "covey_describe" not in text
 
 
-def test_session_start_before_the_shim_still_nudges_without_calling_the_daemon():
+def test_session_start_before_the_shim_gets_the_startup_line_without_calling_the_daemon():
     out = session_start.run(
         payload("fresh", "01-SessionStart.json"), HookContext("api", None)
     )
-    assert "agent `api`" in out["hookSpecificOutput"]["additionalContext"]
+    text = out["hookSpecificOutput"]["additionalContext"]
+    assert "agent `api`" in text
+    assert "covey_describe" not in text
 
 
 SOCK_ENV = {"CLAUDE_CODE_MESSAGING_SOCKET": "/run/c.sock", "CLAUDE_PID": "4242"}
