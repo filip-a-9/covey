@@ -73,6 +73,8 @@ cd ~/code/web && claude      # in a second terminal
 
 Each session registers as an agent named after its directory: `api` and `web`. To pick another name, set `COVEY_AGENT=<slug>` in the covey MCP server's `env`.
 
+A name you created with `covey agent add` or gave a grant belongs to you. A session may use it only if it starts from that agent's workdir (or a directory below it) and outside any other agent's session; otherwise the daemon refuses with 409 `slug_owned`. See the troubleshooting list.
+
 The first session for a name starts with an empty card: no summary, no tags, no capabilities. Later sessions keep whatever the card already says. The SessionStart hook tells the model: "You are agent `api` in the covey. Call `covey_describe` once you know what this repo does." The model then fills the card in. You can do it by hand too:
 
 ```
@@ -185,6 +187,8 @@ Other things you may meet:
 - **`covey init` says it is running from uvx's temporary environment.** Install with `uv tool install` (see step 1) and run `covey init --user` again.
 - **`covey top` says it needs the tui extra.** Reinstall with the `tui` extra (step 1).
 - **A tool answers "Another session already holds the agent name ...".** Two live sessions have the same directory name. Set `COVEY_AGENT=<other-slug>` in one session's covey MCP server `env` and restart that session.
+- **A tool answers 409 `slug_owned`.** The name was created with `covey agent add` (or has grants) and this session did not start in its workdir, or it started inside another agent's session. Start `claude` from the workdir, or run `covey agent add <slug> --workdir <dir>` if the agent moved on purpose. An SDK client over TCP cannot take such a name at all.
+- **A request fails with 413, 429 or 403 `bad_host`.** A body over 1 MiB gets 413; `task`, `context` and `result` are limited to 64 KiB and `artifacts` to 32 items, so put large content in a file and pass the path. A requester may have 10 requests waiting for approval; answer some with `covey approve` or `covey deny`. Over TCP the `Host` header must be `127.0.0.1`, `localhost` or `[::1]` with the port, so do not reach the daemon through a proxy or tunnel.
 - **The session says coveyd is unreachable.** Ask for `covey up` in your terminal, then retry the tool.
 - **After `covey down` and `covey up`.** Open sessions keep working; the next tool call reconnects. If one does not, restart that Claude Code session.
 - **Hooks seem to do nothing.** Restart the Claude Code session after `covey init`. Hooks and MCP servers load at session start.

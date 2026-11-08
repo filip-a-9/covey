@@ -101,7 +101,7 @@ The daemon caps what one agent can send.
 
 - HTTP bodies over 1 MiB get 413. `task`, `context` and `result` are limited to 64 KiB each, and `artifacts` to 32 items. Put large content in a file and pass the path.
 - A requester may have at most 10 requests waiting as `awaiting_grant`. The eleventh gets 429.
-- Over TCP the `Host` header must be `127.0.0.1:<port>` or `localhost:<port>`, otherwise 403 `bad_host`. This also refuses access through a proxy, a tunnel on another port or `[::1]`. The unix socket is not affected.
+- Over TCP the `Host` header must be `127.0.0.1:<port>`, `localhost:<port>` or `[::1]:<port>`, otherwise 403 `bad_host`. This refuses access through a proxy or a tunnel on another port. The unix socket is not affected.
 - Notifications are coalesced: while one toast shows, further ones are counted, then shown as "N Covey notifications waiting".
 
 ## Taking over a slug
