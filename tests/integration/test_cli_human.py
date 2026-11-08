@@ -9,6 +9,7 @@ import pytest
 from typer.testing import CliRunner
 
 from covey.cli import app
+from covey.daemon import store
 
 
 def auth(token):
@@ -300,6 +301,21 @@ def test_agent_add_pre_registers_a_wakeable_agent(env, tmp_path):
         "daily_spawns": 3,
     }
     assert [a["slug"] for a in cli_json("ps")["agents"]] == ["docs"]
+
+
+def test_agent_add_keeps_the_stored_kind_and_summary_when_left_out(
+    env, daemon, tmp_path
+):
+    cli("agent", "add", "docs", "--workdir", str(tmp_path), "--kind", "sdk")
+    cli("agent", "add", "docs", "--workdir", str(tmp_path), "--summary", "Docs.")
+    cli("agent", "add", "docs", "--workdir", str(tmp_path), "--wakeable")
+    row = (
+        store.connect(daemon.cfg.db_path)
+        .execute("SELECT card FROM agents WHERE slug = 'docs'")
+        .fetchone()
+    )
+    card = json.loads(row["card"])
+    assert (card["kind"], card["summary"]) == ("sdk", "Docs.")
 
 
 def test_agent_add_resolves_a_relative_workdir(env, tmp_path, monkeypatch):

@@ -761,7 +761,9 @@ def create_app(cfg: Config, ignore_pids: frozenset[int] = frozenset()) -> FastAP
         body: CreateAgentBody, who: Annotated[Caller, Depends(require("human"))]
     ) -> dict:
         daemon = app.state.daemon
-        fields = body.model_dump(exclude_none=True)
+        # exclude_unset: a field the caller left out must not arrive as its model default,
+        # or an update would reset it.
+        fields = body.model_dump(exclude_none=True, exclude_unset=True)
         registry.check_workdir(fields.get("workdir"), daemon.cfg.home)
         card = registry.create_agent(daemon.conn, daemon.node.node_id, fields)
         await daemon.notify()
