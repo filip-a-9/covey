@@ -100,6 +100,7 @@ def test_session_start_with_a_filled_card_says_it_is_set_instead_of_nudging():
     assert "agent `api`" in text
     assert FILLED["summary"] in text
     assert text != session_start.NUDGE.format(slug="api")
+    assert "covey_describe" not in text
 
 
 @pytest.mark.parametrize(

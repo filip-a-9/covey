@@ -1213,6 +1213,7 @@ async def serve(
     tcp_sock = _bind_tcp(cfg)  # fail on a taken port before touching anything else
     app = None
     unix_sock = None
+    socket_identity: tuple[int, int] | None = None
     sweeper: asyncio.Task | None = None
     tasks: list[asyncio.Task] = []
     servers: list[_Server] = []
@@ -1220,6 +1221,7 @@ async def serve(
         app = create_app(cfg, ignore_pids)
         cfg.socket_path.unlink(missing_ok=True)  # stale: nothing answered above
         unix_sock = _bind_unix(cfg.socket_path)
+        socket_identity = _path_identity(cfg.socket_path)
         for sock, transport in ((unix_sock, "unix"), (tcp_sock, "tcp")):
             options: dict[str, Any] = {
                 "lifespan": "off",
@@ -1276,7 +1278,7 @@ async def serve(
         for sock in (unix_sock, tcp_sock):
             if sock is not None:
                 sock.close()
-        cfg.socket_path.unlink(missing_ok=True)
+        _unlink_if_ours(cfg.socket_path, socket_identity)
 
 
 def main() -> None:
@@ -1321,6 +1323,20 @@ async def _serve_with_pidfile(cfg: Config) -> None:
     finally:
         if wrote and _pidfile_holds(cfg, os.getpid()):
             cfg.pid_path.unlink(missing_ok=True)
+
+
+def _path_identity(path) -> tuple[int, int] | None:
+    try:
+        st = os.stat(path)
+    except OSError:
+        return None
+    return st.st_dev, st.st_ino
+
+
+def _unlink_if_ours(path, identity: tuple[int, int] | None) -> None:
+    """Remove `path` only if it is still the file we bound; a newer daemon may own it now."""
+    if identity is not None and _path_identity(path) == identity:
+        path.unlink(missing_ok=True)
 
 
 def _pidfile_holds(cfg: Config, pid: int) -> bool:
