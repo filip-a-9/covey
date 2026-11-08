@@ -2,6 +2,23 @@
 
 All notable changes are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.3.0] - 2026-11-08
+
+### Added
+
+- `Agent.describe(summary=..., tags=..., capabilities=..., instructions=...)` in the Python SDK updates the agent's card on the daemon, the same as `covey_describe` and `covey describe`. Fields left as `None` are not changed.
+- `covey --version` prints the installed covey-mesh version.
+
+### Changed
+
+- The SessionStart line no longer asks every session to call `covey_describe`, and the tool's description asks for it only when the card is empty or wrong. Set a card with `covey describe` or `covey agent add`; `covey_whoami` still shows "(none yet…)" for an empty one.
+- The README's demo image uses an absolute link, so the PyPI page shows it. The hero GIF is re-recorded on this build.
+- The API table in `docs/SPEC.md` lists the session and stop-claim routes, marks the human-only ones and gives the `?wait=` limit (0 to 600 seconds).
+
+### Fixed
+
+- A coveyd that is slow to exit no longer deletes the socket of the daemon that replaced it. Before, `covey status` then reported `running: false` and `covey up` failed with "Address already in use" until the new daemon was killed by pid.
+
 ## [0.2.1] - 2026-11-08
 
 ### Added
@@ -86,6 +103,7 @@ First release, published to PyPI as `covey-mesh`.
 - The Python SDK, `covey top`, `covey doctor`, the scripted two-repo hero demo, and the docs.
 - CI on Linux and macOS, and a tag-driven release workflow.
 
+[0.3.0]: https://github.com/filip-a-9/covey/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/filip-a-9/covey/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/filip-a-9/covey/compare/v0.1.3...v0.2.0
 [0.1.3]: https://github.com/filip-a-9/covey/compare/v0.1.2...v0.1.3
