@@ -1,7 +1,9 @@
 # Hero demo: two Claude Code sessions, one asks the other, the human approves one grant.
 # Record with:  ./record.sh <dir>      (sets DEMO_DIR; counts as a take, max 3)
-# Nothing in this tape has been run against a real session yet. Lines marked
-# [UNVERIFIED] depend on Claude Code's or vhs's real behaviour and need a --dry rehearsal.
+# Take 3 ran this tape against real sessions. Expected wall time is about 100 s from the
+# prompt to done; every Wait timeout below is a ceiling, not an expectation.
+# Watch the api pane for any permission prompt: no stable prompt string is known, so the
+# tape cannot wait for or fail on one.
 
 Output hero.gif
 
@@ -26,17 +28,17 @@ Enter
 Type "bash layout.sh $DEMO_DIR && tmux -L covey-demo attach -t covey-demo"
 Enter
 Sleep 3s
-# [UNVERIFIED] vhs forwards Alt+<letter>; layout.sh binds Alt+a/w/t to panes 0/1/2 (vhs has no Alt+<digit>).
+# vhs forwards Alt+<letter>; layout.sh binds Alt+a/w/t to panes 0/1/2 (vhs has no Alt+<digit>).
 Alt+a
 Type "$DEMO_CLAUDE"
 Enter
 Alt+w
 Type "$DEMO_CLAUDE"
 Enter
-# [UNVERIFIED] Claude Code's startup time. The repos' directories must already be trusted
+# Claude Code's startup time. The repos' directories must already be trusted
 # (accept the folder-trust dialogs once in a --dry rehearsal; Claude Code remembers them).
 Sleep 20s
-# [UNVERIFIED] both agents live and carrying the cards setup.sh set.
+# Both agents live and carrying the cards setup.sh set.
 Wait+Screen@120s /api\s+claude/
 Wait+Screen@60s /web\s+claude/
 Show
