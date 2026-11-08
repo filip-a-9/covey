@@ -378,6 +378,21 @@ def wake_claim(conn: sqlite3.Connection, request_id: str) -> bool:
     return cur.rowcount == 1
 
 
+def never_offered(conn: sqlite3.Connection, agent_id: str) -> list[dict[str, Any]]:
+    """`queued` requests for `agent_id` that no wake post or Stop hook ever claimed, oldest
+    first: what a newly learned wake socket may still be told about. A released claim
+    leaves a `request.wake_released` row, so a released request is never listed."""
+    rows = conn.execute(
+        "SELECT r.request_id FROM requests r WHERE r.to_agent = ? AND r.status = 'queued'"
+        " AND r.stop_blocked_at IS NULL AND NOT EXISTS (SELECT 1 FROM audit a"
+        " WHERE a.subject = r.request_id"
+        " AND a.event IN ('request.wake_posted', 'request.wake_released'))"
+        " ORDER BY r.created_at, r.request_id",
+        (agent_id,),
+    ).fetchall()
+    return [get_request(conn, r["request_id"]) for r in rows]
+
+
 def release_wake_claim(conn: sqlite3.Connection, request_id: str) -> bool:
     """Clear the wake stamp on one request that is still `queued` (the post failed, or the
     window ran out), so the hooks deliver it. Audits `request.wake_released`."""

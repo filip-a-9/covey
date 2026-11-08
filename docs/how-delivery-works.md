@@ -46,6 +46,7 @@ How Covey uses it:
 1. The SessionStart hook sees the socket path in its environment. It saves the path in a 0600 file under `~/.covey/sessions/` for the shim and also sends it to the daemon.
 2. The shim sends the path with register and with each heartbeat. The daemon keeps it in memory only. It never holds the socket's token, because the socket does not check one.
 3. When a request becomes `queued` for a `live` agent that has a socket, the daemon stamps the request (so the Stop hook and the worker skip it) and posts a message in the background. The audit log gets `request.wake_posted`.
+   The daemon also posts when it learns a `live` agent's socket for the first time, or a different one: for each `queued` request that nothing has offered yet. That covers a request approved or sent in the first seconds after a daemon restart, before the session's next heartbeat (at most 20 s) brings the socket back. A request whose wake or Stop hook claim was already released is left to the hooks.
 4. The message contains the frame, the sender, the capability and the request id. It does not contain the task. The model reads the task through `covey_inbox`:
 
    ```text

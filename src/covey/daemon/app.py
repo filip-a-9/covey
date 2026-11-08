@@ -193,7 +193,11 @@ class Daemon:
         so any other path an agent names is ignored."""
         if not path or not self._is_session_socket(path):
             return
+        known = self.wake_sockets.get(agent_id)
         self.wake_sockets[agent_id] = path
+        if path != known:  # e.g. the first heartbeat after a restart: post what waited
+            for request in router.never_offered(self.conn, agent_id):
+                self.wake(request)
 
     def _is_session_socket(self, path: str) -> bool:
         if not path.endswith(".sock") or not os.path.isabs(path):
