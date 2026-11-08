@@ -2,11 +2,36 @@
 
 import json
 import sqlite3
+import sys
 
 import pytest
 
 from covey.config import Config
 from covey.daemon import store
+from tests import leaks
+
+
+@pytest.fixture(scope="session", autouse=True)
+def no_leaked_demo_daemon():
+    """Fail the run if a demo coveyd started during it is still alive at the end
+    (.claude/specs/test-daemon-leak.md). Demo daemons already running are left alone."""
+    if not sys.platform.startswith("linux"):
+        yield
+        return
+    before = set(leaks.demo_daemons())
+    yield
+    leaked = {p: e for p, e in leaks.demo_daemons().items() if p not in before}
+    if not leaked:
+        return
+    reports = []
+    for pid, env in leaked.items():
+        reports.append(leaks.describe(pid, env))
+        leaks.stop(pid)
+    pytest.fail(
+        f"{len(leaked)} demo coveyd outlived the test run and was stopped:\n\n"
+        + "\n\n".join(reports),
+        pytrace=False,
+    )
 
 
 @pytest.fixture(autouse=True)
