@@ -15,7 +15,7 @@ NUDGE = (
 
 CARD_SET = (
     "You are agent `{slug}` in the covey; your card says: {summary!r}. Other "
-    "agents may ask you for help. Call `covey_describe` only if the card is wrong."
+    "agents may ask you for help."
 )
 
 
