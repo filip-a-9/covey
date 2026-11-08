@@ -300,7 +300,7 @@ wheels = [
 
 [[package]]
 name = "covey-mesh"
-version = "0.3.1"
+version = "0.3.2"
 source = { editable = "." }
 dependencies = [
     { name = "fastapi" },

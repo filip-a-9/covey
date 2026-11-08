@@ -2,11 +2,15 @@
 
 All notable changes are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.3.2] - 2026-11-08
 
 ### Added
 
 - `covey init` allows covey's nine MCP tools in `permissions.allow` of the settings file it writes, so a fresh repo gets no first-use permission prompts. It prints what it added and how to undo it. `covey init --no-allow` skips it.
+
+### Changed
+
+- `docs/trust-model.md` now lists the session-file agent tokens, the ownership check's escape, loopback reach by other local users and TCP-registered agents having no root.
 
 ## [0.3.1] - 2026-11-08
 
@@ -126,6 +130,7 @@ First release, published to PyPI as `covey-mesh`.
 - The Python SDK, `covey top`, `covey doctor`, the scripted two-repo hero demo, and the docs.
 - CI on Linux and macOS, and a tag-driven release workflow.
 
+[0.3.2]: https://github.com/filip-a-9/covey/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/filip-a-9/covey/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/filip-a-9/covey/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/filip-a-9/covey/compare/v0.2.0...v0.2.1

@@ -85,7 +85,7 @@ What can go wrong is prompt injection: one agent, fed hostile text, asks another
 
 ## Status
 
-Version 0.3.1, on PyPI as `covey-mesh`. Pre-1.0: the card format and the nine MCP tool names are stable; the rest may change.
+Version 0.3.2, on PyPI as `covey-mesh`. Pre-1.0: the card format and the nine MCP tool names are stable; the rest may change.
 
 Works: the daemon with registry, router, grants and approvals; the nine MCP tools; the four Claude Code hooks; idle wake through Claude Code's messaging socket; headless workers with budgets; the CLI and `covey top`; the audit log. Developed and tested on Linux with Claude Code 2.1.319.
 
