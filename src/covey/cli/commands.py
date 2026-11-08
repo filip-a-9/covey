@@ -154,7 +154,9 @@ def agent_add(
     wakeable: Annotated[
         bool, typer.Option("--wakeable", help="Spawn a headless worker when asked.")
     ] = False,
-    kind: Annotated[str, typer.Option(help="Agent kind.")] = "claude-code",
+    kind: Annotated[
+        str | None, typer.Option(help="Agent kind (new agents get claude-code).")
+    ] = None,
     summary: Annotated[str | None, typer.Option(help="What the agent does.")] = None,
     tags: Annotated[str | None, typer.Option(help="Comma-separated tags.")] = None,
     capabilities: Annotated[
@@ -189,7 +191,8 @@ def agent_add(
     ] = None,
     as_json: JsonOpt = False,
 ) -> None:
-    """Pre-register an agent with no session, or update one that is not live."""
+    """Pre-register an agent with no session, or update one that is not live; options you
+    leave out keep their stored value."""
     path = workdir.expanduser().resolve()
     if not path.is_dir():
         raise fail(
@@ -197,10 +200,11 @@ def agent_add(
         )
     body: dict[str, Any] = {
         "slug": agent,
-        "kind": kind,
         "workdir": str(path),
         "wakeable": wakeable,
     }
+    if kind is not None:
+        body["kind"] = kind
     if summary is not None:
         body["summary"] = summary
     if tags is not None:

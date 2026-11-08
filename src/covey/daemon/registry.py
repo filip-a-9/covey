@@ -248,6 +248,22 @@ def check_workdir(workdir: str | None, covey_home: Path) -> None:
         )
 
 
+def _overlay_stored(
+    stored: dict[str, Any], fresh: dict[str, Any], body: dict[str, Any]
+) -> dict[str, Any]:
+    """The stored card with only what `body` names changed: its card fields, `worker`
+    field by field, and the `wakeable`/`delivery`/`liveness` that `fresh` recomputed."""
+    card = {**stored}
+    for key in ("summary", "tags", "capabilities", "kind", "instructions", "workdir"):
+        if key in body:
+            card[key] = body[key]
+    for key in ("wakeable", "delivery", "liveness"):
+        card[key] = fresh[key]
+    if "worker" in body:
+        card["worker"] = {**stored.get("worker", {}), **body["worker"]}
+    return card
+
+
 def create_agent(
     conn: sqlite3.Connection, node_id: str, body: dict[str, Any]
 ) -> dict[str, Any]:
@@ -280,10 +296,13 @@ def create_agent(
     for optional in ("instructions", "worker"):
         if optional in body:
             card[optional] = body[optional]
-    _validate(card)
 
     with store.transaction(conn):
         row = _existing_not_live(conn, slug)
+        if row is not None:
+            card = _overlay_stored(json.loads(row["card"]), card, body)
+            card["last_seen"] = row["last_seen"]
+        _validate(card)
         if row is None:
             conn.execute(
                 "INSERT INTO agents (agent_id, slug, node_id, card, liveness, last_seen)"
@@ -291,7 +310,6 @@ def create_agent(
                 (agent_id, slug, node_id, json.dumps(card), liveness, now),
             )
         else:
-            card["last_seen"] = row["last_seen"]
             conn.execute(
                 "UPDATE agents SET card = ?, liveness = ? WHERE slug = ?",
                 (json.dumps(card), liveness, slug),

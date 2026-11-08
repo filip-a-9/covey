@@ -92,6 +92,48 @@ def test_create_updates_a_gone_agent_in_place_keeping_its_token(conn, node):
     assert card["summary"] == "Docs repo."
 
 
+def gone(conn):
+    with store.transaction(conn):
+        conn.execute("UPDATE agents SET liveness = 'gone' WHERE slug = 'docs'")
+
+
+def stored_card(conn):
+    return json.loads(registry.get_agent(conn, "docs")["card"])
+
+
+def test_update_keeps_summary_tags_and_capabilities_the_body_leaves_out(conn, node):
+    caps = [
+        {"name": "explain", "level": "open"},
+        {"name": "edit_code", "level": "forbidden"},
+    ]
+    create(conn, node, summary="Docs repo.", tags=["docs", "md"], capabilities=caps)
+    create(conn, node, wakeable=True, worker={"max_turns": 8})
+    card = stored_card(conn)
+    assert card["summary"] == "Docs repo."
+    assert card["tags"] == ["docs", "md"]
+    assert card["capabilities"] == caps
+    assert card["worker"] == {"max_turns": 8}
+    assert card["wakeable"] is True
+
+
+def test_update_merges_the_worker_block_per_field(conn, node):
+    create(conn, node, worker={"allowed_tools": ["Read"], "max_turns": 8})
+    create(conn, node, worker={"max_turns": 3})
+    assert stored_card(conn)["worker"] == {"allowed_tools": ["Read"], "max_turns": 3}
+
+
+def test_update_keeps_a_stored_kind_when_the_body_has_none(conn, node):
+    create(conn, node, kind="sdk")
+    create(conn, node, wakeable=True)
+    assert stored_card(conn)["kind"] == "sdk"
+
+
+def test_update_replaces_a_summary_the_body_gives(conn, node):
+    create(conn, node, summary="Old.")
+    create(conn, node, summary="New.")
+    assert stored_card(conn)["summary"] == "New."
+
+
 def test_create_is_audited_as_agent_created(conn, node):
     create(conn, node, wakeable=True)
     rows = conn.execute(

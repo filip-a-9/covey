@@ -13,6 +13,10 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 - Discovery ranking strips the endings `-ing`, `-ed` and `-er` (keeping a root of at least four letters) and treats `payments` as a synonym of `billing`, so "remind" finds a card about "reminders" and "payments" finds one about "billing".
 
+### Fixed
+
+- Updating an agent with `covey agent add` no longer resets its summary, tags, capabilities or worker settings; options you leave out keep their stored value.
+
 ## [0.3.0] - 2026-11-08
 
 ### Added
