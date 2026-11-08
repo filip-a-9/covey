@@ -2,6 +2,12 @@
 
 All notable changes are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+
+- A request approved or sent in the first seconds after a daemon restart now wakes an idle session once its next heartbeat brings the messaging socket back, instead of waiting until someone types in that session.
+
 ## [0.3.2] - 2026-11-08
 
 ### Added

@@ -241,14 +241,18 @@ def test_a_connect_error_releases_at_once_and_drops_the_socket(short_home, fake)
         # A listener now appears at the dropped path: nothing is posted to it.
         live = FakeSession(dead)
         try:
-            ask(tcp, web)
+            second = ask(tcp, web)
             time.sleep(SETTLE_S)
             assert live.messages == []
+            # The heartbeat restores the path: the never-offered second request is posted
+            # then; the first, already released and claimed, is not.
             heartbeat(tcp, api, str(dead))
+            assert len(live.wait_for(1)) == 1
             third = ask(tcp, web)
-            messages = live.wait_for(1)
-            assert len(messages) == 1
-            assert_wake_message(messages[0], third["request_id"])
+            messages = live.wait_for(2)
+            assert len(messages) == 2
+            assert_wake_message(messages[0], second["request_id"])
+            assert_wake_message(messages[1], third["request_id"])
         finally:
             live.close()
     assert fake.messages == []
@@ -262,6 +266,74 @@ def test_a_heartbeat_can_arm_the_wake_socket(tcp, wake_daemon, fake):
     messages = fake.wait_for(1)
     assert len(messages) == 1
     assert_wake_message(messages[0], req["request_id"])
+
+
+def test_a_request_queued_before_the_socket_is_known_is_posted_once_it_arrives(
+    tcp, wake_daemon, fake
+):
+    web = register(tcp, wake_daemon, "web")
+    api = register(tcp, wake_daemon, "api")
+    req = ask(tcp, web)
+    time.sleep(SETTLE_S)
+    assert fake.messages == []
+
+    heartbeat(tcp, api, fake.path)
+    messages = fake.wait_for(1)
+    assert len(messages) == 1
+    assert_wake_message(messages[0], req["request_id"])
+
+    heartbeat(tcp, api, fake.path)  # the same socket again is not news
+    time.sleep(SETTLE_S)
+    assert len(fake.messages) == 1
+
+
+def test_a_restarted_daemon_wakes_work_approved_before_the_first_heartbeat(
+    short_home, fake
+):
+    port = free_port()
+    with (
+        make_daemon(short_home, port=port) as d,
+        httpx.Client(base_url=d.base_url, timeout=15) as tcp,
+    ):
+        web = register(tcp, d, "web")
+        api = register(tcp, d, "api", fake.path)
+        req = ask(tcp, web, "run_tests")
+        assert req["status"] == "awaiting_grant"
+    with (
+        make_daemon(short_home, port=port) as d,
+        httpx.Client(base_url=d.base_url, timeout=15) as tcp,
+        httpx.Client(
+            transport=httpx.HTTPTransport(uds=d.socket_path),
+            base_url="http://covey",
+            headers=auth(d.human_token),
+            timeout=15,
+        ) as human,
+    ):
+        r = human.post(f"/v1/approvals/{req['request_id']}", json={"scope": "once"})
+        assert r.status_code == 200, r.text
+        assert r.json()["request"]["status"] == "queued"
+        time.sleep(SETTLE_S)
+        assert fake.messages == []  # the new daemon has not heard the socket yet
+
+        heartbeat(tcp, api, fake.path)
+        messages = fake.wait_for(1)
+        assert len(messages) == 1
+        assert_wake_message(messages[0], req["request_id"])
+
+
+def test_a_released_stop_claim_is_not_posted_when_a_socket_arrives(
+    tcp, wake_daemon, fake
+):
+    web = register(tcp, wake_daemon, "web")
+    api = register(tcp, wake_daemon, "api")
+    req = ask(tcp, web)
+    assert [r["request_id"] for r in stop_claim(tcp, api)] == [req["request_id"]]
+    time.sleep(WINDOW_S + 0.6)  # unread past the window: the sweep releases the claim
+    # Released, so it belongs to the next Stop hook, not to a socket learned later.
+    heartbeat(tcp, api, fake.path)
+    time.sleep(SETTLE_S)
+    assert fake.messages == []
+    assert [r["request_id"] for r in stop_claim(tcp, api)] == [req["request_id"]]
 
 
 def test_a_session_end_stops_the_posts(tcp, wake_daemon, fake):
