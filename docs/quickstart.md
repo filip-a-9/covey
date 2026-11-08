@@ -75,7 +75,7 @@ Each session registers as an agent named after its directory: `api` and `web`. T
 
 A name you created with `covey agent add` or gave a grant belongs to you. A session may use it only if it starts from that agent's workdir (or a directory below it) and outside any other agent's session; otherwise the daemon refuses with 409 `slug_owned`. See the troubleshooting list.
 
-The first session for a name starts with an empty card: no summary, no tags, no capabilities. Later sessions keep whatever the card already says. The SessionStart hook tells the model: "You are agent `api` in the covey. Call `covey_describe` once you know what this repo does." The model then fills the card in. You can do it by hand too:
+The first session for a name starts with an empty card: no summary, no tags, no capabilities. Later sessions keep whatever the card already says. The SessionStart hook only tells the model its name ("You are agent `api` in the covey."); it does not ask for a card. Set the card yourself with `covey describe` or `covey agent add`; a session with an empty card sees "(none yet…)" in `covey_whoami`:
 
 ```
 covey describe api --summary "Orders API: FastAPI, Postgres, Alembic migrations" --tags orders,billing --capability explain=open --capability run_tests=gated
