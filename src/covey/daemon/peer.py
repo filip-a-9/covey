@@ -63,13 +63,10 @@ def own_ancestry(table: Table = _parent_and_argv0) -> set[int]:
 
 def session_id(pid: int) -> int | None:
     """The pid's session id (the setsid boundary), or None where it cannot be read."""
-    if sys.platform != "linux":
-        return None
     try:
-        stat = Path(f"/proc/{pid}/stat").read_text()
+        return os.getsid(pid)  # POSIX: Linux and macOS
     except OSError:
         return None
-    return int(stat.rsplit(")", 1)[1].split()[3])  # field 6
 
 
 def roots_from_session_files(
