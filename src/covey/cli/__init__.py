@@ -5,6 +5,7 @@ import os
 import signal
 import sys
 import time
+from importlib import metadata
 from typing import Annotated, Any
 
 import httpx
@@ -23,8 +24,28 @@ app = typer.Typer(
 )
 
 
+def show_version(value: bool) -> None:
+    if not value:
+        return
+    try:
+        typer.echo(f"covey-mesh {metadata.version('covey-mesh')}")
+    except metadata.PackageNotFoundError:
+        typer.echo("covey-mesh unknown (not installed; run uv sync)")
+    raise typer.Exit()
+
+
 @app.callback()
-def refuse_windows() -> None:
+def refuse_windows(
+    version: Annotated[
+        bool,
+        typer.Option(
+            "--version",
+            callback=show_version,
+            is_eager=True,
+            help="Print the installed version and exit.",
+        ),
+    ] = False,
+) -> None:
     if sys.platform == "win32":
         typer.echo("Covey needs Linux or macOS for now; on Windows use WSL.", err=True)
         raise typer.Exit(2)

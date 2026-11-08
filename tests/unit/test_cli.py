@@ -213,3 +213,18 @@ def test_windows_exits_2_with_a_wsl_hint(monkeypatch):
     res = CliRunner().invoke(app, ["status"])
     assert res.exit_code == 2
     assert "WSL" in res.output
+
+
+def test_version_flag_prints_installed_version():
+    from importlib.metadata import version
+
+    result = CliRunner().invoke(app, ["--version"])
+    assert result.exit_code == 0
+    assert result.output.startswith("covey-mesh")
+    assert version("covey-mesh") in result.output
+
+
+def test_no_args_still_prints_help():
+    result = CliRunner().invoke(app, [])
+    assert "Usage" in result.output
+    assert result.exit_code in (0, 2)
