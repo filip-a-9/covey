@@ -11,6 +11,7 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ### Changed
 
+- `covey deny` now says the refusal stays until `covey revoke`.
 - Discovery ranking strips the endings `-ing`, `-ed` and `-er` (keeping a root of at least four letters) and treats `payments` as a synonym of `billing`, so "remind" finds a card about "reminders" and "payments" finds one about "billing".
 
 ## [0.3.0] - 2026-11-08
