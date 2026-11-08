@@ -33,7 +33,7 @@ Each agent has a liveness: `live`, `wakeable` or `gone`.
 - A session's shim registers it as `live` and sends a heartbeat every 20 seconds, with the agent's own token (the join token gets 403).
 - The daemon checks every 5 seconds. No heartbeat for 60 seconds means `wakeable` if the card says so, otherwise `gone`.
 - The SessionEnd hook does the same at once, except for `/clear`, which ends one session and starts another in the same process.
-- `wakeable` is set only by the human: `covey agent add <slug> --workdir <repo> --wakeable`. A session that takes over the slug later keeps it. After `covey agent add`, the first session for that slug is refused with 409 `slug_owned` until you run `covey agent add` for it once more; see the [trust model](trust-model.md).
+- `wakeable` is set only by the human: `covey agent add <slug> --workdir <repo> --wakeable`. A session that takes over the slug later keeps it. A session started from another directory, or from inside another agent's session, is refused with 409 `slug_owned`; see the [trust model](trust-model.md).
 
 Requests to a `gone` agent are refused at once with `target_unreachable`. The asker gets that error. Nothing else is notified.
 

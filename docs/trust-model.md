@@ -106,7 +106,7 @@ The daemon caps what one agent can send.
 
 ## Taking over a slug
 
-A session registers with the join token, which any process of your user can read. So a session cannot take over a slug that you created with `covey agent add` or that has grants, in either direction: the daemon answers 409 `slug_owned`. Run `covey agent add <slug>` again to approve the next takeover (repeat the same flags: it replaces the whole card), then start the session. One approval covers one takeover. A slug that only a session created, without grants, can still be taken over by another session.
+A session registers with the join token, which any process of your user can read. So a session can take over a slug that you created with `covey agent add` or that has grants, in either direction, only if the daemon can tell where it runs: it must not sit inside the process tree of another agent's session, and, when you set a workdir, it must be started from that directory or below. Otherwise the daemon answers 409 `slug_owned`; start the session from the workdir, outside any other agent, or run `covey agent add <slug> --workdir <dir>` again if the agent moved on purpose. Over TCP the caller cannot be identified, so it is always refused. A slug that only a session created, without grants, can still be taken over by another session.
 
 The heartbeat needs the agent's own token. The join token gets 403 on it. A change of liveness caused by a heartbeat is an `agent.liveness` row in the audit log.
 

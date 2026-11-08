@@ -3,6 +3,8 @@
 import httpx
 import pytest
 
+from tests.integration.procs import register_from
+
 
 def auth(token):
     return {"Authorization": f"Bearer {token}"}
@@ -26,19 +28,19 @@ def human(daemon):
 
 
 def register(tcp, daemon, slug, session_id=None, wakeable=False):
+    workdir = daemon.cfg.home.parent / f"wd-{slug}"
     if wakeable:  # only the human token can set it: pre-add the agent, then register
+        workdir.mkdir(exist_ok=True)
         with httpx.Client(
             transport=httpx.HTTPTransport(uds=daemon.socket_path),
             base_url="http://covey",
             headers=auth(daemon.human_token),
         ) as human:
             made = human.post(
-                "/v1/agents", json={"slug": slug, "workdir": "/x", "wakeable": True}
+                "/v1/agents",
+                json={"slug": slug, "workdir": str(workdir), "wakeable": True},
             )
             assert made.status_code == 201, made.text
-            human.post(  # re-adding approves the takeover (slug_owned otherwise)
-                "/v1/agents", json={"slug": slug, "workdir": "/x", "wakeable": True}
-            )
     body = {
         "slug": slug,
         "kind": "claude-code",
@@ -50,6 +52,10 @@ def register(tcp, daemon, slug, session_id=None, wakeable=False):
     }
     if session_id:
         body["session_id"] = session_id
+    if wakeable:  # a human-created slug: a real process in its workdir registers
+        status, data = register_from(daemon, body, workdir, workdir.parent)
+        assert status == 200, data
+        return auth(data["agent_token"])
     r = tcp.post("/v1/agents/register", json=body, headers=auth(daemon.join_token))
     assert r.status_code == 200, r.text
     return auth(r.json()["agent_token"])

@@ -19,6 +19,7 @@ from covey.frames import CALL_TO_ACTION, FRAME
 from covey.mcp.identity import read_wake_file
 from covey.procs import _start_time
 from tests.integration.conftest import NO_CLAUDE, free_port, run_daemon
+from tests.integration.procs import register_from
 from tests.integration.test_hooks_api import auth
 
 WINDOW_S = 0.5
@@ -110,19 +111,19 @@ def human(wake_daemon):
 
 
 def register(tcp, daemon, slug, wake_socket=None, wakeable=False):
+    workdir = daemon.cfg.home.parent / f"wd-{slug}"
     if wakeable:  # only the human token can set it: pre-add the agent, then register
+        workdir.mkdir(exist_ok=True)
         with httpx.Client(
             transport=httpx.HTTPTransport(uds=daemon.socket_path),
             base_url="http://covey",
             headers=auth(daemon.human_token),
         ) as human:
             made = human.post(
-                "/v1/agents", json={"slug": slug, "workdir": "/x", "wakeable": True}
+                "/v1/agents",
+                json={"slug": slug, "workdir": str(workdir), "wakeable": True},
             )
             assert made.status_code == 201, made.text
-            human.post(  # re-adding approves the takeover (slug_owned otherwise)
-                "/v1/agents", json={"slug": slug, "workdir": "/x", "wakeable": True}
-            )
     body = {
         "slug": slug,
         "kind": "claude-code",
@@ -135,6 +136,10 @@ def register(tcp, daemon, slug, wake_socket=None, wakeable=False):
     }
     if wake_socket:
         body["wake_socket"] = wake_socket
+    if wakeable:  # a human-created slug: a real process in its workdir registers
+        status, data = register_from(daemon, body, workdir, workdir.parent)
+        assert status == 200, data
+        return auth(data["agent_token"])
     r = tcp.post("/v1/agents/register", json=body, headers=auth(daemon.join_token))
     assert r.status_code == 200, r.text
     return auth(r.json()["agent_token"])

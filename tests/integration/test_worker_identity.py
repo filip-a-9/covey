@@ -1,13 +1,12 @@
 """Worker tokens: a headless worker acts as its agent without registering or going live."""
 
-import json
 from dataclasses import replace
 
 import pytest
 from fastapi.testclient import TestClient
 
 from covey.config import Config
-from covey.daemon import registry
+from covey.daemon import peer, registry
 from covey.daemon.app import create_app
 
 
@@ -141,10 +140,11 @@ def test_revoked_worker_token_is_401(client, daemon, worker):
 
 
 def test_a_real_session_can_register_while_a_worker_runs(client, daemon, worker):
-    row = daemon.conn.execute("SELECT card FROM agents WHERE slug = 'docs'").fetchone()
-    card = json.loads(row["card"])  # the human re-adds `docs`: approves the takeover
-    registry.create_agent(daemon.conn, daemon.node.node_id, {**card, "wakeable": True})
-    register(client, daemon, "docs")
+    # `docs` is human-created: the session registers from its workdir, outside any tree.
+    body = {"slug": "docs", "kind": "claude-code", "delivery": "hooks"}
+    registry.register(
+        daemon.conn, daemon.node.node_id, body, peer.Origin(frozenset(), "/x")
+    )
     assert liveness(daemon, "docs") == "live"
     assert client.get("/v1/whoami", headers=worker).status_code == 200
 

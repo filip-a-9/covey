@@ -29,7 +29,7 @@ from typing import Any
 
 from jsonschema import Draft202012Validator
 
-from covey.daemon import store
+from covey.daemon import peer, store
 from covey.daemon.errors import CoveyError
 
 # src/covey/schema has no __init__.py, so find it relative to this file.
@@ -166,34 +166,49 @@ def _human_created(conn: sqlite3.Connection, agent_id: str) -> bool:
     )
 
 
-def _check_takeover_allowed(conn: sqlite3.Connection, agent_id: str, slug: str) -> None:
-    """The join token alone may not take a slug the human created or that holds grants
-    (either direction): that would hand the taker the slug's trust. The human approves the
-    next takeover by re-running `covey agent add` (an `agent.created` update row); a takeover
-    consumes the approval. Derived from the audit log, so no schema change."""
+def _inside(cwd: str, workdir: str) -> bool:
+    try:
+        return Path(cwd).resolve().is_relative_to(Path(workdir).resolve())
+    except OSError:
+        return False
+
+
+def _check_takeover_allowed(
+    conn: sqlite3.Connection,
+    agent_id: str,
+    slug: str,
+    old: dict[str, Any],
+    origin: peer.Origin | None,
+) -> None:
+    """A join-token register on a slug the human created or that holds grants (either
+    direction) would hand the taker the slug's trust. It is allowed only from outside the
+    process tree of every other agent, and, if the human set a workdir, from inside that
+    directory. An unidentifiable peer (TCP, exited) or cwd is refused. Derived from the
+    audit log and grants, so no schema change."""
     granted = conn.execute(
         "SELECT 1 FROM grants WHERE requester = ? OR target = ?", (agent_id, agent_id)
     ).fetchone()
-    if not (granted or _human_created(conn, agent_id)):
+    human = _human_created(conn, agent_id)
+    if not (granted or human):
         return
-    last = conn.execute(
-        "SELECT event, detail FROM audit WHERE subject = ?"
-        " AND event IN ('agent.created', 'agent.registered') ORDER BY id DESC LIMIT 1",
-        (agent_id,),
-    ).fetchone()
-    if (
-        last is not None
-        and last["event"] == "agent.created"
-        and json.loads(last["detail"]).get("update")
-    ):
+    workdir = old.get("workdir") if human else None
+    if origin is None:
+        problem = "Cannot tell which process is registering"
+    elif origin.agents - {agent_id}:
+        problem = "This session runs inside another agent's process tree"
+    elif workdir and (origin.cwd is None or not _inside(origin.cwd, workdir)):
+        problem = f"This session was not started from {workdir}"
+    else:
         return
+    where = f"start the session from {workdir}, outside any other agent's session, "
     raise CoveyError(
         409,
         "slug_owned",
-        f"The agent {slug!r} was set up by the human or holds grants, so a new session "
-        "cannot take it over with the join token alone.",
-        f"Ask the user to run `covey agent add {slug}` (or approve it in `covey top`), "
-        "then register again; or pick another slug.",
+        f"{problem}, and the agent {slug!r} was set up by the human or holds grants, "
+        "so it cannot be taken over from here.",
+        (where if workdir else "start the session outside any other agent's session, ")
+        + f"or run `covey agent add {slug} --workdir <dir>` if the agent moved on "
+        "purpose; or pick another slug.",
     )
 
 
@@ -269,10 +284,14 @@ def create_agent(
 
 
 def register(
-    conn: sqlite3.Connection, node_id: str, body: dict[str, Any]
+    conn: sqlite3.Connection,
+    node_id: str,
+    body: dict[str, Any],
+    origin: peer.Origin | None = None,
 ) -> tuple[dict[str, Any], str]:
-    """Register or take over a slug. Returns (card, agent_token). Audits `agent.registered`
-    (never with the token). `body` is a RegisterBody; `session_id` goes to the column, not
+    """Register or take over a slug. `origin` is where the call came from (None if unknown),
+    judged only for a slug the human owns. Returns (card, agent_token). Audits
+    `agent.registered` (never with the token). `body` is a RegisterBody; `session_id` goes to the column, not
     the card."""
     slug = body.get("slug", "")
     _check_not_reserved(slug)
@@ -301,11 +320,11 @@ def register(
     session_id = body.get("session_id")
     with store.transaction(conn):
         row = _existing_not_live(conn, slug)
+        old = json.loads(row["card"]) if row is not None else {}
         if row is not None:
-            _check_takeover_allowed(conn, agent_id, slug)
+            _check_takeover_allowed(conn, agent_id, slug, old, origin)
         # A takeover keeps what only the human sets: the worker block, and wakeable
         # unless the body says otherwise (covey agent add, SPEC "Delivery").
-        old = json.loads(row["card"]) if row is not None else {}
         if row is not None and _human_created(conn, agent_id):
             if "workdir" in old:
                 card["workdir"] = old["workdir"]

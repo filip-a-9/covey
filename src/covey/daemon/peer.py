@@ -11,10 +11,11 @@ import socket
 import struct
 import sys
 from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from covey.procs import _parent_and_argv0, _start_time
+from covey.procs import _parent_and_argv0, _start_time, process_cwd
 
 Table = Callable[[int], tuple[int, str] | None]  # pid -> (ppid, argv0)
 StartTime = Callable[[int], str | None]
@@ -132,6 +133,28 @@ def merge_roots(*sources: Mapping[str, Root]) -> dict[str, list[Root]]:
     return merged
 
 
+def agents_in_chain(
+    chain: Iterable[int],
+    roots: Mapping[str, Sequence[Root]],
+    start_time: StartTime = _start_time,
+    skip: Collection[int] = (),
+) -> list[str]:
+    """Every agent_id with a root (pid and start time) in `chain`, nearest first."""
+    by_pid = {
+        pid: (agent_id, start)
+        for agent_id, agent_roots in roots.items()
+        for pid, start in agent_roots
+    }
+    found: list[str] = []
+    for pid in chain:
+        if pid in skip or pid not in by_pid:
+            continue
+        agent_id, start = by_pid[pid]
+        if start_time(pid) == start and agent_id not in found:
+            found.append(agent_id)
+    return found
+
+
 def find_agent(
     chain: Iterable[int],
     roots: Mapping[str, Sequence[Root]],
@@ -139,18 +162,31 @@ def find_agent(
     skip: Collection[int] = (),
 ) -> str | None:
     """The agent_id with a root (pid and start time) in `chain`, the peer and its ancestors."""
-    by_pid = {
-        pid: (agent_id, start)
-        for agent_id, agent_roots in roots.items()
-        for pid, start in agent_roots
-    }
-    for pid in chain:
-        if pid in skip or pid not in by_pid:
-            continue
-        agent_id, start = by_pid[pid]
-        if start_time(pid) == start:
-            return agent_id
-    return None
+    found = agents_in_chain(chain, roots, start_time, skip)
+    return found[0] if found else None
+
+
+@dataclass(frozen=True)
+class Origin:
+    """Where a unix-socket register call came from: the agents whose process trees the peer
+    sits in, and the peer's working directory (None when unreadable)."""
+
+    agents: frozenset[str]
+    cwd: str | None
+
+
+def origin_of(
+    pid: int | None,
+    chain: Sequence[int] | None,
+    start: str | None,
+    roots: Mapping[str, Sequence[Root]],
+    skip: Collection[int] = (),
+) -> Origin | None:
+    """The Origin of a peer, or None if it cannot be identified: no pid, or it exited."""
+    if pid is None or chain is None or _start_time(pid) != start:
+        return None
+    agents = frozenset(agents_in_chain(chain, roots, skip=skip))
+    return Origin(agents, process_cwd(pid))
 
 
 def peer_protocol(base: type) -> type:

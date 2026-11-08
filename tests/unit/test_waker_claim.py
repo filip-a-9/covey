@@ -7,7 +7,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from covey.daemon import registry, router, store, waker
+from covey.daemon import peer, registry, router, store, waker
 from tests.conftest import add_agent
 
 EXPLAIN = [{"name": "explain", "level": "open"}]
@@ -82,7 +82,6 @@ def test_claimed_requests_are_not_claimed_again(conn, node, wcfg, web, tmp_path)
 
 def test_a_live_agent_is_left_to_its_session(conn, node, wcfg, web, tmp_path):
     pre_register(conn, node, "docs", tmp_path)
-    pre_register(conn, node, "docs", tmp_path)  # the human approves the takeover
     registry.register(
         conn,
         node.node_id,
@@ -92,6 +91,7 @@ def test_a_live_agent_is_left_to_its_session(conn, node, wcfg, web, tmp_path):
             "delivery": "hooks",
             "capabilities": EXPLAIN,
         },
+        peer.Origin(frozenset(), str(tmp_path / "docs")),
     )
     rid = ask(conn, web, "docs")
     assert claim(conn, wcfg) == []

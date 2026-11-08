@@ -428,6 +428,20 @@ def refuse_if_in_agent_tree(request: Request, daemon: Daemon) -> None:
         )
 
 
+def register_origin(request: Request, daemon: Daemon) -> peer.Origin | None:
+    """Where a register call came from; None over TCP or when the peer is unreadable."""
+    if transport_of(request) != "unix":
+        return None
+    scope = request.scope
+    return peer.origin_of(
+        scope.get("covey_peer_pid"),
+        scope.get("covey_peer_chain"),
+        scope.get("covey_peer_start"),
+        daemon.agent_roots(),
+        daemon.ignore_pids,
+    )
+
+
 def caller(request: Request) -> Caller:
     """Resolve the bearer token. 401 if missing or unknown; 403 for the human token over TCP."""
     daemon = get_daemon(request)
@@ -735,6 +749,7 @@ def create_app(cfg: Config, ignore_pids: frozenset[int] = frozenset()) -> FastAP
                 exclude_unset=True,
                 exclude={"wake_socket", "wakeable"},
             ),
+            register_origin(request, daemon),
         )
         daemon.note_session(card["agent_id"], request, replace=True)
         daemon.note_wake_socket(card["agent_id"], body.wake_socket)

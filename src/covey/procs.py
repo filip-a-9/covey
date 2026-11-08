@@ -53,6 +53,28 @@ def _ps(pid: int, fields: str) -> str | None:
     return out.stdout.strip() or None
 
 
+def process_cwd(pid: int) -> str | None:
+    """The working directory of `pid`, or None if it cannot be read. Linux reads /proc;
+    macOS asks `lsof` (best effort, unverified against a real session)."""
+    if sys.platform == "linux":
+        try:
+            return os.readlink(f"/proc/{pid}/cwd")
+        except OSError:
+            return None
+    try:
+        out = subprocess.run(
+            ["lsof", "-a", "-p", str(pid), "-d", "cwd", "-Fn"],
+            capture_output=True,
+            text=True,
+            timeout=2,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    names = [line[1:] for line in out.stdout.splitlines() if line.startswith("n")]
+    return names[0] if names else None
+
+
 def find_claude(pid: int) -> ClaudeProcess | None:
     """The nearest process named `claude` at or above `pid`, or None."""
     seen = 0

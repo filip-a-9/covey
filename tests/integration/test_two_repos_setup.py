@@ -4,18 +4,17 @@ import json
 import os
 import shutil
 import socket
-import sqlite3
 import subprocess
 import sys
 import tempfile
 import uuid
 from pathlib import Path
+from types import SimpleNamespace
 
-import httpx
 import pytest
 
-from covey.cli.client import human_client
 from covey.config import Config
+from tests.integration.procs import register_from
 
 HERE = Path(__file__).resolve().parents[2] / "examples" / "two-repos"
 COVEY = Path(sys.executable).parent / "covey"
@@ -78,28 +77,24 @@ def go_live(root, env, slug):
     """What a Claude Code session's shim does at start: register, with no description."""
     home = root / ".covey"
     token = (home / "join-token").read_text().strip()
-    # The human re-adds the agent with its card as it is: a join-token takeover needs that.
-    with sqlite3.connect(
-        Config(home=home, port=int(env["COVEY_PORT"])).db_path
-    ) as db:  # `ps` hides gone agents
-        card = json.loads(
-            db.execute("SELECT card FROM agents WHERE slug = ?", (slug,)).fetchone()[0]
-        )
-    keep = ("slug", "kind", "summary", "tags", "capabilities", "workdir", "wakeable")
-    with human_client(Config(home=home, port=int(env["COVEY_PORT"]))) as human:
-        body = {k: card[k] for k in keep if k in card}
-        assert human.post("/v1/agents", json=body).status_code == 201
-    r = httpx.post(
-        f"http://127.0.0.1:{env['COVEY_PORT']}/v1/agents/register",
-        json={
-            "slug": slug,
-            "kind": "claude-code",
-            "delivery": "hooks",
-            "session_id": str(uuid.uuid4()),
-        },
-        headers={"Authorization": f"Bearer {token}"},
+    # From a process in the repo, as the shim is: the agent's workdir.
+    daemon = SimpleNamespace(
+        socket_path=str(Config(home=home, port=int(env["COVEY_PORT"])).socket_path),
+        join_token=token,
     )
-    assert r.status_code == 200, r.text
+    body = {
+        "slug": slug,
+        "kind": "claude-code",
+        "delivery": "hooks",
+        "session_id": str(uuid.uuid4()),
+    }
+    # A fake `claude`, as the real daemon (no ignored pids) must see a root per session.
+    claude = root / "bin" / "claude"
+    claude.parent.mkdir(exist_ok=True)
+    claude.unlink(missing_ok=True)
+    claude.symlink_to(sys.executable)
+    status, data = register_from(daemon, body, root / slug, root, python=claude)
+    assert status == 200, data
 
 
 def test_repos_and_history(demo):

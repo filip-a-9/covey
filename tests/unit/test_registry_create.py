@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from covey.daemon import registry, store
+from covey.daemon import peer, registry, store
 from covey.daemon.errors import CoveyError
 
 
@@ -14,10 +14,14 @@ def create(conn, node, slug="docs", **kw):
         return registry.create_agent(conn, node.node_id, body)
 
 
-def register(conn, node, slug="docs", **kw):
+# A session started in the agent's workdir, outside every other agent's tree.
+IN_WORKDIR = peer.Origin(frozenset(), "/srv/docs")
+
+
+def register(conn, node, slug="docs", origin=IN_WORKDIR, **kw):
     body = {"slug": slug, "kind": "claude-code", "delivery": "hooks", **kw}
     with store.transaction(conn):
-        return registry.register(conn, node.node_id, body)
+        return registry.register(conn, node.node_id, body, origin)
 
 
 def refusal(fn, *args, **kw):
@@ -101,35 +105,26 @@ def test_create_is_audited_as_agent_created(conn, node):
 # ------------------------------------------------------- register takeover
 
 
-def approve(conn, node, **kw):
-    """The human re-runs `covey agent add`: the next session may take the slug over."""
-    create(conn, node, **kw)
-
-
 def test_register_takeover_keeps_wakeable_when_omitted(conn, node):
     create(conn, node, wakeable=True)
-    approve(conn, node, wakeable=True)
     card, _ = register(conn, node)
     assert card["wakeable"] is True
 
 
 def test_register_takeover_can_turn_wakeable_off(conn, node):
     create(conn, node, wakeable=True)
-    approve(conn, node, wakeable=True)
     card, _ = register(conn, node, wakeable=False)
     assert card["wakeable"] is False
 
 
 def test_register_takeover_keeps_the_worker_block(conn, node):
     create(conn, node, wakeable=True, worker={"max_turns": 3})
-    approve(conn, node, wakeable=True, worker={"max_turns": 3})
     card, _ = register(conn, node)
     assert card["worker"] == {"max_turns": 3}
 
 
 def test_register_cannot_set_a_worker_block(conn, node):
     create(conn, node, wakeable=True, worker={"max_turns": 3})
-    approve(conn, node, wakeable=True, worker={"max_turns": 3})
     card, _ = register(conn, node, worker={"max_turns": 200})
     assert card["worker"] == {"max_turns": 3}
     with store.transaction(conn):
@@ -141,9 +136,39 @@ def test_register_cannot_set_a_worker_block(conn, node):
 def test_a_swept_takeover_falls_back_to_wakeable(conn, node):
     """After the shim's session times out, a pre-registered agent is wakeable again."""
     create(conn, node, wakeable=True)
-    approve(conn, node, wakeable=True)
     register(conn, node)
     later = "2999-01-01T00:00:00Z"
     with store.transaction(conn):
         registry.sweep(conn, later, 60)
     assert registry.get_agent(conn, "docs")["liveness"] == "wakeable"
+
+
+# ------------------------------------------------- takeover of a human-created slug
+
+
+@pytest.mark.parametrize(
+    "origin",
+    [
+        None,
+        peer.Origin(frozenset(), None),
+        peer.Origin(frozenset(), "/srv/elsewhere"),
+        peer.Origin(frozenset(), "/srv/docs-evil"),
+        peer.Origin(frozenset({"other@%s"}), "/srv/docs"),
+    ],
+    ids=["unknown-peer", "unreadable-cwd", "wrong-cwd", "sibling-dir", "other-tree"],
+)
+def test_a_takeover_of_a_human_created_slug_needs_the_right_origin(conn, node, origin):
+    create(conn, node, wakeable=True)
+    if origin is not None and origin.agents:
+        origin = peer.Origin(frozenset({f"other@{node.node_id}"}), origin.cwd)
+    err = refusal(register, conn, node, origin=origin)
+    assert (err.status, err.code) == (409, "slug_owned")
+
+
+def test_a_takeover_from_a_subdirectory_or_the_slugs_own_old_tree_is_allowed(
+    conn, node
+):
+    create(conn, node, wakeable=True)
+    own = peer.Origin(frozenset({f"docs@{node.node_id}"}), "/srv/docs/pkg")
+    card, _ = register(conn, node, origin=own)
+    assert card["workdir"] == "/srv/docs"

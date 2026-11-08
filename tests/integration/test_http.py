@@ -9,6 +9,7 @@ import pytest
 from typer.testing import CliRunner
 
 from covey.cli import app as cli_app
+from tests.integration.procs import register_from
 
 
 def auth(token):
@@ -381,14 +382,11 @@ def test_a_shim_registering_keeps_the_card_the_human_set(tcp, daemon, human, tmp
         },
     )
     assert r.status_code < 300, r.text
-    approve = {"slug": "api", "workdir": str(tmp_path), "capabilities": caps}
-    approve["summary"] = "owns the orders API"
-    assert human.post("/v1/agents", json=approve).status_code < 300
     # What the shim sends: no description fields at all.
     shim_body = {"slug": "api", "kind": "claude-code", "delivery": "hooks"}
-    r = tcp.post("/v1/agents/register", json=shim_body, headers=auth(daemon.join_token))
-    assert r.status_code == 200, r.text
-    card = tcp.get("/v1/whoami", headers=auth(r.json()["agent_token"])).json()["card"]
+    status, data = register_from(daemon, shim_body, tmp_path, tmp_path)
+    assert status == 200, data
+    card = tcp.get("/v1/whoami", headers=auth(data["agent_token"])).json()["card"]
     assert card["summary"] == "owns the orders API"
     assert card["capabilities"] == caps
 
@@ -528,35 +526,24 @@ def test_create_agent_on_a_live_slug_is_409(human, web):
     assert (r.status_code, r.json()["error"]["code"]) == (409, "slug_live")
 
 
-def test_register_takeover_keeps_wakeable_and_worker(tcp, human, daemon):
+def test_register_takeover_keeps_wakeable_and_worker(human, daemon, tmp_path):
     human.post(
         "/v1/agents",
         json={
             "slug": "docs",
-            "workdir": "/x",
+            "workdir": str(tmp_path),
             "wakeable": True,
             "worker": {"max_turns": 2},
         },
     )
-    human.post(
-        "/v1/agents",
-        json={
-            "slug": "docs",
-            "workdir": "/x",
-            "wakeable": True,
-            "worker": {"max_turns": 2},
-        },
-    )
-    r = tcp.post(
-        "/v1/agents/register",
-        json={"slug": "docs", "kind": "claude-code", "delivery": "hooks"},
-        headers=auth(daemon.join_token),
-    )
-    card = r.json()["card"]
+    body = {"slug": "docs", "kind": "claude-code", "delivery": "hooks"}
+    status, data = register_from(daemon, body, tmp_path, tmp_path)
+    assert status == 200, data
+    card = data["card"]
     assert (card["wakeable"], card["worker"]) == (True, {"max_turns": 2})
 
 
-def test_register_ignores_wakeable_from_the_join_token(tcp, human, daemon):
+def test_register_ignores_wakeable_from_the_join_token(tcp, human, daemon, tmp_path):
     reg = {"slug": "docs", "kind": "claude-code", "delivery": "hooks"}
     r = tcp.post(
         "/v1/agents/register",
@@ -567,14 +554,12 @@ def test_register_ignores_wakeable_from_the_join_token(tcp, human, daemon):
     assert r.json()["card"]["wakeable"] is False
 
     # The human path still sets it, and a register cannot clear it.
-    human.post("/v1/agents", json={"slug": "wk", "workdir": "/x", "wakeable": True})
-    human.post("/v1/agents", json={"slug": "wk", "workdir": "/x", "wakeable": True})
-    r = tcp.post(
-        "/v1/agents/register",
-        json={**reg, "slug": "wk", "wakeable": False},
-        headers=auth(daemon.join_token),
+    human.post(
+        "/v1/agents", json={"slug": "wk", "workdir": str(tmp_path), "wakeable": True}
     )
-    assert r.json()["card"]["wakeable"] is True
+    body = {**reg, "slug": "wk", "wakeable": False}
+    status, data = register_from(daemon, body, tmp_path, tmp_path)
+    assert status == 200 and data["card"]["wakeable"] is True
 
 
 # ------------------------------------------------------------ slug takeover (S1)
@@ -639,41 +624,39 @@ def test_a_shim_created_slug_without_grants_stays_takeable(tcp, daemon):
     assert join_register(tcp, daemon, "plain").status_code == 200
 
 
-def test_human_re_adding_allows_one_takeover_that_keeps_human_settings(
-    tcp, human, daemon
+def test_a_takeover_keeps_human_settings_session_after_session(
+    tcp, human, daemon, tmp_path
 ):
-    add_docs(human)
-    assert join_register(tcp, daemon, "docs").json()["error"]["code"] == "slug_owned"
-    add_docs(human)  # `covey agent add docs` again: the human approves the next session
-    r = join_register(
-        tcp,
-        daemon,
-        "docs",
-        workdir="/attacker",
-        capabilities=[
+    add_docs(human, workdir=str(tmp_path))
+    body = {
+        "slug": "docs",
+        "kind": "python",
+        "delivery": "poll",
+        "workdir": "/attacker",
+        "capabilities": [
             {"name": "push", "level": "open"},
             {"name": "mine", "level": "open"},
         ],
-    )
-    assert r.status_code == 200, r.text
-    card = r.json()["card"]
-    levels = {c["name"]: c["level"] for c in card["capabilities"]}
-    assert (card["workdir"], card["worker"]) == ("/legit", {"max_turns": 3})
-    assert levels["push"] == "forbidden" and levels["explain"] == "open"
-    assert levels["mine"] == "open"  # an agent may still add its own capability
-    end_session(tcp, auth(r.json()["agent_token"]), "docs")
-    again = join_register(tcp, daemon, "docs")
-    assert again.json()["error"]["code"] == "slug_owned"  # one approval, one takeover
+    }
+    for _ in range(2):  # the normal flow: open, close, open again
+        status, data = register_from(daemon, body, tmp_path, tmp_path)
+        assert status == 200, data
+        card = data["card"]
+        levels = {c["name"]: c["level"] for c in card["capabilities"]}
+        assert (card["workdir"], card["worker"]) == (str(tmp_path), {"max_turns": 3})
+        assert levels["push"] == "forbidden" and levels["explain"] == "open"
+        assert levels["mine"] == "open"  # an agent may still add its own capability
+        end_session(tcp, auth(data["agent_token"]), "docs")
 
 
 def test_an_agent_cannot_loosen_a_level_the_human_set_but_may_tighten(
-    tcp, human, daemon
+    tcp, human, daemon, tmp_path
 ):
-    add_docs(human)
-    add_docs(human)
-    r = join_register(tcp, daemon, "docs")
-    assert r.status_code == 200, r.text
-    docs = auth(r.json()["agent_token"])
+    add_docs(human, workdir=str(tmp_path))
+    body = {"slug": "docs", "kind": "python", "delivery": "poll"}
+    status, data = register_from(daemon, body, tmp_path, tmp_path)
+    assert status == 200, data
+    docs = auth(data["agent_token"])
 
     def put(caps):
         body = {"capabilities": [{"name": n, "level": lv} for n, lv in caps]}
