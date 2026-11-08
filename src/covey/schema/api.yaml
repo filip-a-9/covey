@@ -49,9 +49,9 @@ paths:
         successful call mints a new agent token and invalidates the previous one.
         A slug the human created (`covey agent add`) or that holds grants in either direction
         is not taken over with the join token alone: the call is refused with 409
-        `slug_owned`, and the human re-runs `covey agent add <slug>` to allow the next
-        session (one approval, one takeover). Slugs a shim created that hold no grants stay
-        takeable. A takeover of a human-created slug keeps its `worker` block, `wakeable`
+        `slug_owned` unless the caller is a unix-socket peer outside the process tree of
+        every other agent and, when the human set a `workdir`, inside that directory.
+        Slugs a shim created that hold no grants stay takeable. A takeover of a human-created slug keeps its `worker` block, `wakeable`
         value, `workdir` and capability levels; the body may add capabilities and tighten
         levels, never loosen one. A `wakeable` in the body is accepted and ignored
         (false for a new agent); only the human token sets it, through createAgent.
