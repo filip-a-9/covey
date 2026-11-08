@@ -2,6 +2,17 @@
 
 All notable changes are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- `covey top --json` prints one snapshot (`covey`, `agents`, `requests`, `approvals`) and exits without starting the TUI, so it works without the `tui` extra.
+- `python -m covey` runs the same CLI as `covey`.
+
+### Changed
+
+- Discovery ranking strips the endings `-ing`, `-ed` and `-er` (keeping a root of at least four letters) and treats `payments` as a synonym of `billing`, so "remind" finds a card about "reminders" and "payments" finds one about "billing".
+
 ## [0.3.0] - 2026-11-08
 
 ### Added

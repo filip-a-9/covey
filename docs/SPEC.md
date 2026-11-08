@@ -249,7 +249,7 @@ A slug can be taken over by a new registration only when its current holder is n
 
 **The CLI is for setup and scripting; the TUI (`covey top`) is the thing people screenshot.** Both talk to the daemon over the HTTP API on the unix socket with the human token, so they work even if the daemon was started by a shim from some other terminal.
 
-**CLI surface, v1** (Typer; every command except `covey top` (a TUI) and `covey mcp` (a stdio server) has `--json`):
+**CLI surface, v1** (Typer; every command except `covey mcp` (a stdio server) has `--json`; `covey top --json` prints one snapshot instead of opening the TUI):
 
 | Command | What it does |
 | --- | --- |
@@ -354,7 +354,7 @@ covey/
 
 1. Core daemon: `curl` can register two agents, create a request, long-poll it, and reply; `covey log` shows the thread; 90% of router and grants logic covered by unit tests.
 2. MCP shim, hooks, spawner: a real Claude Code session in one repo can `covey_ask` a second session in another repo and get an answer via the Stop hook; a `wakeable` agent with no session is served by a spawned worker; spawn budget enforced.
-3. CLI + TUI: every command in the table, except `top` and `mcp`, works with `--json`; `covey top` renders the hero demo state legibly in 100×30.
+3. CLI + TUI: every command in the table, except `mcp`, works with `--json`; `covey top` renders the hero demo state legibly in 100×30.
 4. Trust and approvals: gated request raises a prompt in TUI, CLI and desktop notification; `once`, `session`, `always`, `deny` all behave; forbidden capabilities are rejected with a reason.
 5. SDK + tests: `examples/python-agent` joins and answers requests in under 40 lines; integration suite runs in CI on Linux and macOS.
 6. Docs + hero GIF: a stranger can go from nothing to the demo in five minutes following the quickstart; the GIF is recorded with `vhs` from a script in `examples/two-repos` so it can be re-recorded after every UI change.

@@ -19,7 +19,7 @@ uv tool install 'covey-mesh[tui,notify]'
 
 The package is `covey-mesh`; the command is `covey`.
 
-The extras are optional. `tui` gives you `covey top`, and `notify` gives you desktop notifications for approvals. Without `tui`, `covey top` says so and exits.
+The extras are optional. `tui` gives you `covey top`, and `notify` gives you desktop notifications for approvals. Without `tui`, `covey top` says so and exits; `covey top --json` still works.
 
 ### From source
 
@@ -153,7 +153,7 @@ covey log --json
 covey log --follow
 ```
 
-`covey log` prints a transcript of requests grouped by thread, with each request's audit events (approvals, wake posts, deliveries, worker spawns) beneath it. `covey log --follow` keeps printing new events as they happen. `covey log --json` also includes events that aren't about a request, such as agent and grant rows. Every command except `covey top` (a TUI) and `covey mcp` (a stdio server) takes `--json`.
+`covey log` prints a transcript of requests grouped by thread, with each request's audit events (approvals, wake posts, deliveries, worker spawns) beneath it. `covey log --follow` keeps printing new events as they happen. `covey log --json` also includes events that aren't about a request, such as agent and grant rows. Every command except `covey mcp` (a stdio server) takes `--json`. `covey top --json` prints one snapshot and exits without opening the TUI, so it works without the `tui` extra. It has four keys: `covey` (the API version), `agents` (the cards `covey ps` lists), `requests` (the newest 200 requests in any status, oldest first) and `approvals` (the requests waiting for you, as `covey approvals` lists them).
 
 ## 8. Stop
 
