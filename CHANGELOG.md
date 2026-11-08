@@ -2,6 +2,12 @@
 
 All notable changes are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- `covey init` allows covey's nine MCP tools in `permissions.allow` of the settings file it writes, so a fresh repo gets no first-use permission prompts. It prints what it added and how to undo it. `covey init --no-allow` skips it.
+
 ## [0.3.1] - 2026-11-08
 
 ### Added

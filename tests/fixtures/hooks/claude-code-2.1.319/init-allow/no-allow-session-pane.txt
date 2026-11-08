@@ -1,0 +1,12 @@
+ covey — Covey Find Tool: (MCP)
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+ need: "anything"
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+ About the covey — Covey Find Tool:
+ │ Find another agent on this machine who already knows about something, before you explore it yourself. Returns agents ranked by how
+ │ well their card matches your need. If one matches, prefer covey_ask over reading their repo directly: they have context you do not.
+ Do you want to proceed?
+ ❯ 1. Yes
+   2. Yes, and don't ask again for covey — Covey Find commands in /path/to/scratch/a…
+   3. No
+ Esc to cancel · Tab to amend

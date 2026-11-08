@@ -110,7 +110,7 @@ def test_user_flag_targets_home_files(dirs, hooks_ready):
 def test_json_output_lists_changes(dirs, hooks_ready):
     payload = json.loads(runner.invoke(app, ["init", "--json"]).output)
     assert payload["changed"] is True
-    assert len(payload["changes"]) == 5
+    assert len(payload["changes"]) == 6
 
 
 def test_invalid_json_is_an_error_and_nothing_written(dirs):
@@ -278,3 +278,85 @@ def test_write_json_keeps_the_files_mode_and_ignores_a_planted_tmp_symlink(tmp_p
     write_json(target, {"b": 2})
     assert victim.read_text() == "orig"
     assert json.loads(target.read_text()) == {"b": 2}
+
+
+TOOLS = {
+    "whoami", "describe", "find", "ask", "wait", "inbox", "reply", "grant", "log",
+}  # fmt: skip
+RULES = {f"mcp__covey__covey_{t}" for t in TOOLS}
+
+
+def allow_list(path):
+    return json.loads(path.read_text())["permissions"]["allow"]
+
+
+def test_init_allows_the_nine_covey_tools_by_name(dirs, hooks_ready):
+    _, proj = dirs
+    res = runner.invoke(app, ["init"])
+    assert res.exit_code == 0, res.output
+    assert set(allow_list(proj / ".claude" / "settings.json")) == RULES
+    assert "To undo" in res.output
+
+
+def test_allow_keeps_user_entries_and_adds_no_duplicates(dirs, hooks_ready):
+    _, proj = dirs
+    (proj / ".claude").mkdir()
+    path = proj / ".claude" / "settings.json"
+    mine = ["Bash(ls)", "mcp__covey__covey_find"]
+    path.write_text(json.dumps({"permissions": {"allow": mine, "deny": ["X"]}}))
+    assert runner.invoke(app, ["init"]).exit_code == 0
+    allow = allow_list(path)
+    assert allow[:2] == mine
+    assert len(allow) == len(set(allow))
+    assert set(allow) == RULES | {"Bash(ls)"}
+    assert json.loads(path.read_text())["permissions"]["deny"] == ["X"]
+
+
+def test_second_run_adds_no_allow_entries(dirs, hooks_ready):
+    _, proj = dirs
+    runner.invoke(app, ["init"])
+    path = proj / ".claude" / "settings.json"
+    before = path.read_text()
+    res = runner.invoke(app, ["init", "--json"])
+    assert json.loads(res.output)["changed"] is False
+    assert path.read_text() == before
+
+
+def test_no_allow_writes_no_permissions_but_hooks_and_mcp(dirs, hooks_ready):
+    _, proj = dirs
+    res = runner.invoke(app, ["init", "--no-allow"])
+    assert res.exit_code == 0, res.output
+    settings = json.loads((proj / ".claude" / "settings.json").read_text())
+    assert "permissions" not in settings
+    assert set(settings["hooks"]) == EVENTS
+    assert (proj / ".mcp.json").exists()
+    assert "To undo" not in res.output
+
+
+def test_user_flag_writes_allow_to_user_settings(dirs, hooks_ready):
+    home, proj = dirs
+    assert runner.invoke(app, ["init", "--user"]).exit_code == 0
+    assert set(allow_list(home / ".claude" / "settings.json")) == RULES
+    assert not (proj / ".claude").exists()
+
+
+def test_allow_is_written_even_when_hooks_are_unavailable(dirs, monkeypatch):
+    _, proj = dirs
+    monkeypatch.setattr("covey.cli.init.hooks_available", lambda: False)
+    assert runner.invoke(app, ["init"]).exit_code == 0
+    settings = json.loads((proj / ".claude" / "settings.json").read_text())
+    assert set(settings["permissions"]["allow"]) == RULES
+    assert "hooks" not in settings
+
+
+@pytest.mark.parametrize("bad", [{"permissions": []}, {"permissions": {"allow": "x"}}])
+def test_bad_permissions_types_are_an_error_and_nothing_written(dirs, hooks_ready, bad):
+    _, proj = dirs
+    (proj / ".claude").mkdir()
+    path = proj / ".claude" / "settings.json"
+    path.write_text(json.dumps(bad))
+    res = runner.invoke(app, ["init"])
+    assert res.exit_code == 1
+    assert path.read_text() == json.dumps(bad)
+    assert not (proj / ".mcp.json").exists()
+    assert "fix" in res.output.lower()
