@@ -256,7 +256,7 @@ A slug can be taken over by a new registration only when its current holder is n
 | `covey init` | Detects Claude Code, writes the MCP server entry and the four hooks into settings, prints what it did. The daemon starts with the first session (or `covey up`). Idempotent. The whole onboarding is this one command |
 | `covey up` / `covey down` / `covey status` | Daemon lifecycle; `up` is implicit when a shim connects |
 | `covey ps` | Table of agents: slug, kind, liveness, workdir, capabilities, last seen |
-| `covey agent add <slug> --workdir <dir> [--wakeable] [--kind claude-code] [--capabilities name:level,...]` | Pre-register an agent that has no live session yet |
+| `covey agent add <slug> --workdir <dir> [--wakeable] [--kind claude-code] [--capabilities name=level[:note],...]` | Pre-register an agent that has no live session yet |
 | `covey describe <slug> --summary ... --tags ... --capability name=level[:note]` | Edit a card by hand |
 | `covey find "<need>"` | Run discovery from the shell, prints ranked cards with the `why` |
 | `covey ask <slug> "<task>" [--cap explain] [--wait]` | Create a request as the human; the quickest way to test a new agent |

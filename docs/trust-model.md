@@ -18,7 +18,7 @@ Other rules, all in the code:
 
 - A capability the target never declared is treated as gated. Asking for it needs your approval.
 - Requests to the human (`covey_ask` with `to: human`) need no grant.
-- `forbidden` levels come from the target's own card. A target declares them through `covey_describe`, or you declare them with `covey agent add --capabilities push:forbidden`.
+- `forbidden` levels come from the target's own card. A target declares them through `covey_describe`, or you declare them with `covey agent add --capabilities push=forbidden` (the older `push:forbidden` also works).
 - On an agent you created with `covey agent add`, the agent's own token may tighten a capability's level but never loosen one, and it cannot drop a capability you declared. On an agent only a session created, nothing is held against the agent, so it can change its own levels.
 - A capability name must be exactly the declared name. A trailing newline, carriage return or space is rejected, so `push\n` cannot slip past a `forbidden` `push`.
 - Wildcard grants (capability `*`) count only if the human made them. The daemon never creates one on its own. An exact grant wins over a wildcard.

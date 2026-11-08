@@ -12,6 +12,7 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 ### Changed
 
 - `covey deny` now says the refusal stays until `covey revoke`.
+- `covey agent add --capabilities` takes the same `name=level[:note]` form as `covey describe --capability`; the older `name:level` still works.
 - Discovery ranking strips the endings `-ing`, `-ed` and `-er` (keeping a root of at least four letters) and treats `payments` as a synonym of `billing`, so "remind" finds a card about "reminders" and "payments" finds one about "billing".
 
 ### Fixed
