@@ -761,9 +761,9 @@ def create_app(cfg: Config, ignore_pids: frozenset[int] = frozenset()) -> FastAP
         body: CreateAgentBody, who: Annotated[Caller, Depends(require("human"))]
     ) -> dict:
         daemon = app.state.daemon
-        card = registry.create_agent(
-            daemon.conn, daemon.node.node_id, body.model_dump(exclude_none=True)
-        )
+        fields = body.model_dump(exclude_none=True)
+        registry.check_workdir(fields.get("workdir"), daemon.cfg.home)
+        card = registry.create_agent(daemon.conn, daemon.node.node_id, fields)
         await daemon.notify()
         return versioned(card=card)
 

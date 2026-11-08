@@ -195,13 +195,6 @@ def agent_add(
         raise fail(
             as_json, f"{path} is not a directory. Pass the agent's repo as --workdir."
         )
-    home = load_cfg().home.resolve()
-    if path == Path.home().resolve() or path == home or path in home.parents:
-        raise fail(
-            as_json,
-            f"{path} is your home or contains {home}, so a worker could read the daemon's"
-            " tokens. Pass the agent's repo as --workdir.",
-        )
     body: dict[str, Any] = {
         "slug": agent,
         "kind": kind,

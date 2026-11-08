@@ -706,3 +706,16 @@ def test_register_with_a_trailing_newline_in_the_slug_is_422(tcp, daemon):
     body = {"slug": "evil\n", "kind": "python", "delivery": "poll"}
     r = tcp.post("/v1/agents/register", json=body, headers=auth(daemon.join_token))
     assert r.status_code in (400, 422)
+
+
+def test_create_agent_refuses_a_workdir_that_exposes_the_daemons_tokens(
+    human, daemon, tmp_path, monkeypatch
+):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    for bad in (tmp_path, daemon.cfg.home, daemon.cfg.home.parent):
+        r = human.post("/v1/agents", json={"slug": "docs", "workdir": str(bad)})
+        assert (r.status_code, r.json()["error"]["code"]) == (400, "bad_workdir"), bad
+    fine = tmp_path / "repo"
+    fine.mkdir()
+    r = human.post("/v1/agents", json={"slug": "docs", "workdir": str(fine)})
+    assert r.status_code == 201, r.text

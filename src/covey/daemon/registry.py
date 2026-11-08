@@ -225,6 +225,23 @@ def _keep_human_levels(
     return list(by_name.values())
 
 
+def check_workdir(workdir: str | None, covey_home: Path) -> None:
+    """A workdir that is the user's home or contains COVEY_HOME would let a worker read the
+    daemon's tokens."""
+    if not workdir:
+        return
+    path = Path(workdir).expanduser().resolve()
+    home = covey_home.resolve()
+    if path == Path.home().resolve() or path == home or path in home.parents:
+        raise CoveyError(
+            400,
+            "bad_workdir",
+            f"{path} is your home or contains {home}, so a worker could read the "
+            "daemon's tokens.",
+            "Pass the agent's repo as the workdir (--workdir <repo>).",
+        )
+
+
 def create_agent(
     conn: sqlite3.Connection, node_id: str, body: dict[str, Any]
 ) -> dict[str, Any]:
