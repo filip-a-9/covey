@@ -130,7 +130,7 @@ covey approvals
 covey approve <request_id>              # once, the default
 covey approve <request_id> --session
 covey approve <request_id> --always
-covey deny <request_id>
+covey deny <request_id>                 # also refuses later matching requests, until `covey revoke <grant_id>`
 ```
 
 If `covey top` is not open, you get a desktop notification when one is available (needs the `notify` extra, or WSL with `powershell.exe` on PATH). Otherwise the daemon only logs it. Run these commands in your own terminal. The daemon refuses them from inside a Claude Code session.

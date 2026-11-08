@@ -189,6 +189,14 @@ def test_deny_refuses_the_request(env, tcp, web, api):
     assert data["request"]["status"] == "refused"
 
 
+def test_deny_output_names_who_is_refused_and_the_grant_to_revoke(env, tcp, web, api):
+    rid = gated_request(tcp, web)
+    text = cli("deny", rid).output
+    (grant,) = cli_json("grants")["grants"]
+    assert "web" in text and "api" in text and "run_tests" in text
+    assert grant["grant_id"] in text
+
+
 def test_approve_with_two_scopes_fails(env, tcp, web, api):
     rid = gated_request(tcp, web)
     cli("approve", rid, "--once", "--always", expect=1)

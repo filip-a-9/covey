@@ -396,11 +396,18 @@ def deny(
     ],
     as_json: JsonOpt = False,
 ) -> None:
-    """Deny a pending request."""
+    """Deny this request and refuse future ones from the same requester for that capability, until `covey revoke`."""
     payload = call(
         as_json, "POST", f"/v1/approvals/{request_id}", json={"scope": "deny"}
     )
-    out(as_json, payload, f"Denied. Request is {payload['request']['status']}.")
+    req = payload["request"]
+    out(
+        as_json,
+        payload,
+        f"Denied. {safe(slug(req['from_agent']))} can't ask "
+        f"{safe(slug(req['to_agent']))} for {safe(req['capability'])} again "
+        f"until `covey revoke {safe(payload['grant']['grant_id'])}`.",
+    )
 
 
 @app.command()

@@ -33,7 +33,7 @@ A grant is `(requester, target, capability, scope)`. There is at most one standi
 | `once` | One request. Approving a request makes a grant for that request only. It is removed when the request finishes in any state (`done`, `failed`, expired or a failed worker). | `o` | `--once` (the default for `covey approve`) |
 | `session` | Until the target's current session ends. It matches only that session's id, and only while the target is `live`. Needs a live target. | `s` | `--session` |
 | `always` | Until you revoke it. | `a` | `--always` |
-| `deny` | A stored refusal. The request is `refused` with `denied_by_human`, and later matching requests are refused without a prompt. | `d` | `covey deny <id>` |
+| `deny` | A stored refusal. The request is `refused` with `denied_by_human`, and later matching requests are refused without a prompt until you run `covey revoke <grant_id>`. | `d` | `covey deny <id>` |
 
 A second matching request from the same requester waits as `awaiting_grant` until you approve it too, and approving it adds its own grant without touching the first. A `once` grant created with `covey grant --once` is not tied to a request: it applies to any request and is used up by the first `done` or `failed` reply.
 
@@ -42,7 +42,7 @@ Ways to create or remove grants, all human only:
 ```
 covey approvals                          # what is waiting
 covey approve <request_id> [--once|--session|--always]
-covey deny <request_id>
+covey deny <request_id>                  # refuses later matching requests too, until revoked
 covey grant <requester> <target> <capability> --once|--session|--always
 covey grants
 covey revoke <grant_id>
