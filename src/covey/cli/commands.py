@@ -131,18 +131,9 @@ LEVELS = ("open", "gated", "forbidden")
 
 
 def parse_capabilities(as_json: bool, value: str) -> list[dict[str, str]]:
-    """`explain:open,run_tests:gated` -> card capabilities; Exit with the format on error."""
-    caps = []
-    for item in csv(value):
-        name, _, level = item.partition(":")
-        if level.strip() not in LEVELS:
-            raise fail(
-                as_json,
-                f"Capability {item!r} is not name:level. Use e.g. "
-                f"`--capabilities explain:open,run_tests:gated` (levels: {', '.join(LEVELS)}).",
-            )
-        caps.append({"name": name.strip(), "level": level.strip()})
-    return caps
+    """`explain=open,run_tests=gated:slow` -> card capabilities. The older `name:level`
+    still works; an item without `=` is read that way. Exit with the format on error."""
+    return [parse_capability(as_json, item, colon_ok=True) for item in csv(value)]
 
 
 @agent_app.command("add")
@@ -162,7 +153,8 @@ def agent_add(
     capabilities: Annotated[
         str | None,
         typer.Option(
-            help="Comma-separated name:level, e.g. explain:open,run_tests:gated."
+            help="Comma-separated name=level[:note], e.g. "
+            "explain=open,run_tests=gated:slow (name:level also works)."
         ),
     ] = None,
     allowed_tools: Annotated[
@@ -238,16 +230,20 @@ def inbox(
 CAPABILITY_NAME = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,63}$")  # card.json pattern
 
 
-def parse_capability(as_json: bool, item: str) -> dict[str, str]:
-    """`name=level[:note]` -> one card capability; Exit with the format on error."""
-    name, eq, rest = item.partition("=")
+def parse_capability(
+    as_json: bool, item: str, colon_ok: bool = False
+) -> dict[str, str]:
+    """`name=level[:note]` -> one card capability; Exit with the format on error.
+    `colon_ok` also reads an item without `=` as the older `name:level`."""
+    sep = ":" if colon_ok and "=" not in item else "="
+    name, eq, rest = item.partition(sep)
     level, _, note = rest.partition(":")
     name, level, note = name.strip(), level.strip(), note.strip()
     if not eq or level not in LEVELS or not CAPABILITY_NAME.fullmatch(name):
         raise fail(
             as_json,
             f"Capability {item!r} is not name=level[:note]. Use e.g. "
-            f"`--capability run_tests=gated:slow` (levels: {', '.join(LEVELS)}; "
+            f"`run_tests=gated:slow` (levels: {', '.join(LEVELS)}; "
             "name: lowercase letters, digits, _ . -).",
         )
     cap = {"name": name, "level": level}

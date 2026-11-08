@@ -3,6 +3,7 @@
 import json
 import sys
 
+import pytest
 from typer.testing import CliRunner
 
 from covey.cli import app, format_follow, format_log
@@ -228,3 +229,42 @@ def test_no_args_still_prints_help():
     result = CliRunner().invoke(app, [])
     assert "Usage" in result.output
     assert result.exit_code in (0, 2)
+
+
+def test_agent_add_capabilities_take_the_describe_form_with_a_note():
+    from covey.cli.commands import parse_capabilities
+
+    caps = parse_capabilities(False, "explain=open,run_tests=gated:slow")
+    assert caps == [
+        {"name": "explain", "level": "open"},
+        {"name": "run_tests", "level": "gated", "note": "slow"},
+    ]
+
+
+def test_agent_add_capabilities_still_take_name_colon_level():
+    from covey.cli.commands import parse_capabilities
+
+    caps = parse_capabilities(False, "explain:open,push:forbidden")
+    assert caps == [
+        {"name": "explain", "level": "open"},
+        {"name": "push", "level": "forbidden"},
+    ]
+
+
+def test_agent_add_capabilities_mix_both_forms():
+    from covey.cli.commands import parse_capabilities
+
+    caps = parse_capabilities(False, "explain=open,push:forbidden")
+    assert [c["name"] for c in caps] == ["explain", "push"]
+    assert [c["level"] for c in caps] == ["open", "forbidden"]
+
+
+@pytest.mark.parametrize("bad", ["explain=bogus", "explain:bogus", "Bad Name:open"])
+def test_agent_add_capabilities_refuse_a_bad_item(bad):
+    import typer
+
+    from covey.cli.commands import parse_capabilities
+
+    with pytest.raises(typer.Exit) as exc:
+        parse_capabilities(False, bad)
+    assert exc.value.exit_code == 1

@@ -394,7 +394,8 @@ def test_agent_add_bad_capability_fails_before_calling_the_daemon(env, tmp_path,
         bad,
         expect=1,
     )
-    assert "name:level" in data["error"]
+    assert repr(bad) in data["error"]  # quotes what the user typed
+    assert "=level" in data["error"]  # and shows the format to use
     assert cli_json("ps")["agents"] == []
 
 
