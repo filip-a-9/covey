@@ -104,7 +104,7 @@ def test_foreign_host_header_is_refused_on_tcp(tcp, web, daemon):
     assert code_of(res) == "bad_host"
 
 
-@pytest.mark.parametrize("name", ["127.0.0.1", "localhost"])
+@pytest.mark.parametrize("name", ["127.0.0.1", "localhost", "[::1]"])
 def test_loopback_host_headers_are_accepted_on_tcp(tcp, web, daemon, name):
     host = f"{name}:{daemon.cfg.port}"
     assert tcp.get("/v1/whoami", headers={**web, "Host": host}).status_code == 200

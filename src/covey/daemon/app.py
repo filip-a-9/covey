@@ -336,7 +336,7 @@ class Limits:
         self.app = app
         self.max_body = cfg.max_body_bytes
         self.port = cfg.port
-        self.hosts = {f"127.0.0.1:{cfg.port}", f"localhost:{cfg.port}"}
+        self.hosts = {f"{h}:{cfg.port}" for h in ("127.0.0.1", "localhost", "[::1]")}
 
     async def __call__(self, scope, receive, send):
         if scope["type"] != "http":
