@@ -2,6 +2,27 @@
 
 All notable changes are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.2.0] - 2026-11-08
+
+### Changed
+
+- The database moves to schema version 2 on first start, and an older covey cannot open it afterwards. Back up `~/.covey/covey.db` before upgrading if you may need to go back.
+- The join token can no longer heartbeat. A shim from 0.1.x gets 403: restart each Claude Code session after upgrading.
+- A session registering on a slug that the human created or granted must run inside that agent's workdir and outside every other agent's process tree; otherwise it gets 409 `slug_owned`.
+- A `once` grant is tied to the request it authorized.
+- Idle wake posts only to a socket inside `$XDG_RUNTIME_DIR/cc-socks`. On macOS, set `COVEY_WAKE_SOCKET_DIR` to the directory Claude Code uses.
+- The build backend is pinned to hatchling 1.33.0.
+
+### Security
+
+- Request limits: an HTTP body over 1 MiB gets 413; `task`, `context` and `result` are at most 64 KiB each; a requester may have at most 10 requests waiting for approval.
+- Over TCP, the `Host` header must name `127.0.0.1`, `localhost` or `[::1]` with the daemon's port.
+- A workdir that contains the user's home or the daemon's home is refused with 400 `bad_workdir`.
+- The human-token ancestry check is harder to escape, and a headless worker's token is scoped to its own request.
+- Agent-written text is escaped in the CLI and `covey top`, and framed as peer text in discovery, Stop and SessionStart output.
+- Capability names with a trailing newline are rejected.
+- The daemon no longer serves `/openapi.json` or `/docs`.
+
 ## [0.1.3] - 2026-11-07
 
 ### Fixed
@@ -59,6 +80,7 @@ First release, published to PyPI as `covey-mesh`.
 - The Python SDK, `covey top`, `covey doctor`, the scripted two-repo hero demo, and the docs.
 - CI on Linux and macOS, and a tag-driven release workflow.
 
+[0.2.0]: https://github.com/filip-a-9/covey/compare/v0.1.3...v0.2.0
 [0.1.3]: https://github.com/filip-a-9/covey/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/filip-a-9/covey/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/filip-a-9/covey/compare/v0.1.0...v0.1.1
