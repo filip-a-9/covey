@@ -1,0 +1,58 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/path/to/covey hook session-start"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/path/to/covey hook stop"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/path/to/covey hook post-tool"
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/path/to/covey hook session-end"
+          }
+        ]
+      }
+    ]
+  },
+  "permissions": {
+    "allow": [
+      "mcp__covey__covey_whoami",
+      "mcp__covey__covey_describe",
+      "mcp__covey__covey_find",
+      "mcp__covey__covey_ask",
+      "mcp__covey__covey_wait",
+      "mcp__covey__covey_inbox",
+      "mcp__covey__covey_reply",
+      "mcp__covey__covey_grant",
+      "mcp__covey__covey_log"
+    ]
+  }
+}

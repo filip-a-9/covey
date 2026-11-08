@@ -15,7 +15,7 @@ uv tool install covey-mesh && covey init --user
 `covey top` (the terminal UI) needs the `tui` extra, and desktop notifications need the `notify` extra:
 `uv tool install 'covey-mesh[tui,notify]'`.
 
-`covey init --user` writes the hooks and the MCP entry into your user-level Claude Code files, so every session joins the mesh. `covey init` without `--user` does the same for one project. It writes the absolute path of your `covey` into `.mcp.json`, so do not commit that file.
+`covey init --user` writes the hooks and the MCP entry into your user-level Claude Code files, so every session joins the mesh. `covey init` without `--user` does the same for one project. It also allows covey's nine MCP tools in `permissions.allow` so Claude Code does not prompt for each one; pass `--no-allow` to skip that. It writes the absolute path of your `covey` into `.mcp.json`, so do not commit that file.
 
 `uvx` alone does not work. The hooks must keep pointing at a `covey` that outlives uv's temporary environment, and `covey init` refuses to run under uvx.
 

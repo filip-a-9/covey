@@ -33,6 +33,13 @@ HOOKS: dict[str, tuple[str, str | None]] = {
     "PostToolUse": ("post-tool", "*"),
     "SessionEnd": ("session-end", None),
 }
+# Permission rules for covey's nine MCP tools, one per tool (not `mcp__covey`), so a tool added
+# in a later release is not pre-allowed. Rule form confirmed in the Claude Code permissions docs.
+TOOL_NAMES = (
+    "whoami", "describe", "find", "ask", "wait", "inbox", "reply", "grant", "log",
+)  # fmt: skip
+ALLOW_RULES = [f"mcp__covey__covey_{t}" for t in TOOL_NAMES]
+ALLOW_LABEL = "permissions.allow"
 UVX_REFUSAL = (
     "`covey init` is running from uvx's temporary environment ({exe}), which uv can delete. "
     "Run `uv tool install covey-mesh && {init}` instead."
@@ -180,6 +187,18 @@ def merge_hooks(settings: dict[str, Any], exe: str) -> list[tuple[str, str]]:
     return changed
 
 
+def merge_allow(settings: dict[str, Any]) -> list[str]:
+    """Add covey's tool rules to permissions.allow in place; return the rules added."""
+    allow = object_key(settings, "permissions").setdefault("allow", [])
+    if not isinstance(allow, list):
+        raise InitError(
+            'The "permissions.allow" key must be a list. Fix it, then run `covey init` again.'
+        )
+    added = [r for r in ALLOW_RULES if r not in allow]
+    allow.extend(added)
+    return added
+
+
 def merge_mcp(config: dict[str, Any], exe: str) -> str | None:
     """Return "added", "updated" (an old bare `covey` command) or None (left alone)."""
     servers = object_key(config, "mcpServers")
@@ -209,7 +228,7 @@ def write_json(path: Path, data: dict[str, Any]) -> None:
     os.replace(tmp, path)
 
 
-def run_init(base: Path, home: Path | None) -> list[dict[str, str]]:
+def run_init(base: Path, home: Path | None, allow: bool = True) -> list[dict[str, str]]:
     """Apply the merge; `home` set means user-level. Nothing is written if any file errors."""
     if home is None:
         settings_path, mcp_path = base / ".claude" / "settings.json", base / ".mcp.json"
@@ -229,7 +248,16 @@ def run_init(base: Path, home: Path | None) -> list[dict[str, str]]:
         }
         for e, action in done
     ]
-    hooks_changed = bool(changes)
+    added_rules = merge_allow(settings) if allow else []
+    if added_rules:
+        changes.append(
+            {
+                "file": str(settings_path),
+                "action": "added",
+                "added": f"{ALLOW_LABEL}: {len(added_rules)} covey tools (mcp__covey__covey_*)",
+            }
+        )
+    settings_changed = bool(done or added_rules)
     mcp_action = merge_mcp(mcp, exe)
     if mcp_action:
         changes.append(
@@ -239,7 +267,7 @@ def run_init(base: Path, home: Path | None) -> list[dict[str, str]]:
                 "added": f"mcpServers.covey ({exe} mcp)",
             }
         )
-    if hooks_changed:
+    if settings_changed:
         write_json(settings_path, settings)
     if mcp_action:
         write_json(mcp_path, mcp)
@@ -253,10 +281,17 @@ def init(
     as_json: Annotated[
         bool, typer.Option("--json", help="Print JSON instead of text.")
     ] = False,
+    allow: Annotated[
+        bool,
+        typer.Option(
+            "--allow/--no-allow",
+            help="Also allow covey's nine MCP tools without a prompt.",
+        ),
+    ] = True,
 ) -> None:
-    """Add the covey hooks and MCP server to Claude Code settings (idempotent)."""
+    """Add the covey hooks, MCP server and tool permissions to Claude Code settings (idempotent)."""
     try:
-        changes = run_init(Path.cwd(), Path.home() if user else None)
+        changes = run_init(Path.cwd(), Path.home() if user else None, allow)
     except InitError as exc:
         typer.echo(
             json.dumps({"error": str(exc)}) if as_json else str(exc), err=not as_json
@@ -273,6 +308,12 @@ def init(
         )
     else:
         lines = [f"{c['file']}: {c['action']} {c['added']}" for c in changes]
+        for c in changes:
+            if c["added"].startswith(ALLOW_LABEL):
+                lines.append(
+                    f"To undo: remove the mcp__covey__* entries from {ALLOW_LABEL} "
+                    f"in {c['file']}, or re-run with --no-allow next time."
+                )
         typer.echo(
             "\n".join(lines) + "\nRestart Claude Code sessions, then run `covey up`."
         )

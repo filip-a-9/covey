@@ -49,6 +49,8 @@ covey init
 
 This writes `.claude/settings.json` and `.mcp.json` in the current directory, for that project only. Warning: it writes the absolute path of your `covey` into `.mcp.json`. Do not commit that file, because it will not work on a teammate's machine. Run it in each repo you want in the mesh.
 
+Both forms also add allow rules for covey's nine MCP tools (`mcp__covey__covey_find`, `mcp__covey__covey_ask` and so on) to `permissions.allow` in the same settings file, so Claude Code does not ask before each first use. Pass `--no-allow` to skip them. To undo, delete the `mcp__covey__*` entries from `permissions.allow`. The first time Claude Code opens the folder, its trust dialog lists these nine pre-approved tools; answering "No, continue without these permissions" leaves them off and you get the usual prompts.
+
 Both forms print the files they changed. Both ask you to restart any Claude Code sessions that are already open.
 
 If you use a non-default `COVEY_HOME` or `COVEY_PORT`, set it in Claude Code's environment too. See the last item in [Troubleshooting](#troubleshooting).

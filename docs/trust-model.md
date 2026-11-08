@@ -64,6 +64,12 @@ So run `covey approve`, `covey grant` and `covey top` in a terminal that was not
 
 These checks are speed bumps, not a security boundary.
 
+## What `covey init` pre-allows
+
+`covey init` adds nine rules, `mcp__covey__covey_whoami` through `mcp__covey__covey_log`, to `permissions.allow` in the settings file it writes the hooks into (`.claude/settings.json`, or `~/.claude/settings.json` with `--user`). They are listed one per tool, not as `mcp__covey`, so a tool added in a later release still prompts. This only skips Claude Code's own prompt for calling covey's tools. Capability levels, grants and approvals are enforced by the daemon and are unchanged. `covey_grant` is on the list because it always refuses agents.
+
+Run `covey init --no-allow` to skip the rules, or delete the `mcp__covey__*` entries from `permissions.allow` to undo them.
+
 ## The grant is checked again at reply time
 
 A grant is checked when a request is created and again when the target replies. If the grant has gone away in between (you revoked it, a `session` grant's session ended, an `expires_at` passed), the request becomes `failed` with the result `grant_revoked`, and the reply is refused with 403 `grant_revoked`: "Do not act on the task; ask the human for a new grant if it is still wanted."

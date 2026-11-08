@@ -1,0 +1,5 @@
+❯ Call the covey_find tool with query anything, then call covey_ask targeting nobody with message ping. Report both results in one line.
+  Called covey 2 times
+● covey_find returned no matches, and covey_ask to "nobody" failed with agent_not_found because no agent by that name exists on this node.
+✻ Cooked for 23s · done 5:23 PM
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
