@@ -350,32 +350,64 @@ def stop_claim(conn: sqlite3.Connection, agent_id: str) -> list[dict[str, Any]]:
     model. Stamps `stop_blocked_at` so the hook blocks at most once per claim, and leaves
     the status `queued`: the model's own inbox read delivers it, as for an idle wake. If
     the hook dies before printing the block, `release_wake_claims` offers it again.
+
+    Also takes a request whose idle wake was posted but never read, once: a wake that lands
+    in a busy turn can be seen and left alone by the model, and nothing else offers it
+    until the 10-minute release. Audits `request.stop_claimed` for those, which is also
+    what marks them as taken.
     """
     with store.transaction(conn):
         rows = conn.execute(
-            "SELECT * FROM requests WHERE to_agent = ? AND stop_blocked_at IS NULL"
-            " AND status = 'queued' ORDER BY created_at, request_id",
+            "SELECT r.request_id, r.stop_blocked_at FROM requests r"
+            " WHERE r.to_agent = ? AND r.status = 'queued' AND (r.stop_blocked_at IS NULL"
+            " OR (SELECT a.event FROM audit a WHERE a.subject = r.request_id AND a.event IN"
+            " ('request.wake_posted', 'request.stop_claimed', 'request.wake_released')"
+            " ORDER BY a.id DESC LIMIT 1) = 'request.wake_posted')"
+            " ORDER BY r.created_at, r.request_id",
             (agent_id,),
         ).fetchall()
         now = store.now_iso()
+        node = agent_id.split("@", 1)[1]
         for row in rows:
             conn.execute(
                 "UPDATE requests SET stop_blocked_at = ? WHERE request_id = ?",
                 (now, row["request_id"]),
             )
+            if row["stop_blocked_at"] is not None:
+                store.audit(
+                    conn,
+                    store.daemon_actor(node),
+                    "request.stop_claimed",
+                    row["request_id"],
+                )
         return [get_request(conn, r["request_id"]) for r in rows]
 
 
 def wake_claim(conn: sqlite3.Connection, request_id: str) -> bool:
     """Stamp a `queued` request as posted to a session's wake socket. The status stays
-    `queued`; the stamp keeps `stop_claim` and the waker off it. False if already stamped
+    `queued`; the stamp keeps the waker off it, and `stop_claim` too unless the wake goes
+    unread. Audits `request.wake_posted` in the same transaction. False if already stamped
     or no longer queued."""
-    cur = conn.execute(
-        "UPDATE requests SET stop_blocked_at = ? WHERE request_id = ?"
-        " AND status = 'queued' AND stop_blocked_at IS NULL",
-        (store.now_iso(), request_id),
-    )
-    return cur.rowcount == 1
+    with store.transaction(conn):
+        cur = conn.execute(
+            "UPDATE requests SET stop_blocked_at = ? WHERE request_id = ?"
+            " AND status = 'queued' AND stop_blocked_at IS NULL",
+            (store.now_iso(), request_id),
+        )
+        if cur.rowcount != 1:
+            return False
+        agent_id = conn.execute(
+            "SELECT to_agent FROM requests WHERE request_id = ?", (request_id,)
+        ).fetchone()["to_agent"]
+        node = agent_id.split("@", 1)[1]
+        store.audit(
+            conn,
+            store.daemon_actor(node),
+            "request.wake_posted",
+            request_id,
+            {"agent": agent_id},
+        )
+    return True
 
 
 def never_offered(conn: sqlite3.Connection, agent_id: str) -> list[dict[str, Any]]:

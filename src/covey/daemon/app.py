@@ -224,8 +224,6 @@ class Daemon:
         rid = request["request_id"]
         if not router.wake_claim(self.conn, rid):
             return
-        actor = store.daemon_actor(self.node.node_id)
-        store.audit(self.conn, actor, "request.wake_posted", rid, {"agent": agent_id})
         text = frames.wake_message(
             request["from_agent"].partition("@")[0], request["capability"], rid
         )

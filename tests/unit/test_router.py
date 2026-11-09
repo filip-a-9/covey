@@ -764,15 +764,36 @@ def test_wake_claim_refuses_a_request_that_is_not_queued(conn, world):
     assert stamped(conn, r["request_id"]) is None
 
 
-def test_stop_claim_skips_a_wake_claimed_request_until_released(conn, world):
+def test_stop_claim_takes_an_unread_wake_claimed_request_once(conn, world):
+    # The wake landed in a busy turn and the model did not act on it: the end of that
+    # turn blocks once with the request instead of leaving it for the 10-minute release.
     r = ask(conn, world)
     router.wake_claim(conn, r["request_id"])
+    got = router.stop_claim(conn, world["bob"])
+    assert [(g["request_id"], g["status"]) for g in got] == [
+        (r["request_id"], "queued")
+    ]
+    assert "request.stop_claimed" in audit_events(conn, r["request_id"])
+    assert stamped(conn, r["request_id"]) is not None
     assert router.stop_claim(conn, world["bob"]) == []
+
+
+def test_a_stop_claimed_wake_is_released_and_offered_again(conn, world):
+    r = ask(conn, world)
+    router.wake_claim(conn, r["request_id"])
+    router.stop_claim(conn, world["bob"])
     assert router.release_wake_claims(conn, FAR_FUTURE) == [r["request_id"]]
     assert stamped(conn, r["request_id"]) is None
     got = router.stop_claim(conn, world["bob"])
     assert [g["request_id"] for g in got] == [r["request_id"]]
     assert "request.wake_released" in audit_events(conn, r["request_id"])
+
+
+def test_stop_claim_leaves_a_read_wake_alone(conn, world):
+    r = ask(conn, world)
+    router.wake_claim(conn, r["request_id"])
+    router.inbox(conn, world["bob"])
+    assert router.stop_claim(conn, world["bob"]) == []
 
 
 def test_release_only_takes_claims_older_than_the_cutoff(conn, world):

@@ -201,7 +201,6 @@ def test_a_live_agent_is_woken_and_a_read_acks_it(tcp, wake_daemon, fake):
     assert len(messages) == 1
     assert_wake_message(messages[0], req["request_id"])
     assert status(tcp, web, req["request_id"]) == "queued"
-    assert stop_claim(tcp, api) == []
 
     inbox = tcp.get("/v1/agents/api/inbox", headers=api).json()["requests"]
     assert [r["request_id"] for r in inbox] == [req["request_id"]]
@@ -211,14 +210,18 @@ def test_a_live_agent_is_woken_and_a_read_acks_it(tcp, wake_daemon, fake):
     assert len(fake.messages) == 1
 
 
-def test_an_unread_wake_falls_back_to_the_stop_hook_without_a_second_post(
+def test_an_unread_wake_goes_to_the_next_stop_hook_once_without_a_second_post(
     tcp, wake_daemon, fake
 ):
+    # The wake landed in a busy turn and the model left it: the end of that turn blocks
+    # once with it, and after the window the release offers it again.
     web = register(tcp, wake_daemon, "web")
     api = register(tcp, wake_daemon, "api", fake.path)
     req = ask(tcp, web)
     fake.wait_for(1)
+    assert [r["request_id"] for r in stop_claim(tcp, api)] == [req["request_id"]]
     assert stop_claim(tcp, api) == []
+    assert status(tcp, web, req["request_id"]) == "queued"
 
     claimed = poll_stop_claim(tcp, api)
     assert [r["request_id"] for r in claimed] == [req["request_id"]]
