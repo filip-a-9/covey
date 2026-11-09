@@ -60,7 +60,7 @@ Agents reach the daemon through MCP (Claude Code, OpenClaw, Cursor) or plain HTT
 
 **The core is four small modules sharing one SQLite file.** Registry holds cards and liveness. Router creates requests, assigns them to threads, tracks status and stores results. Grants decides whether a request may proceed and raises approval prompts when it may not. Waker decides how to get a request in front of its target: deliver to a live session's inbox, or spawn a headless worker. SQLite in WAL mode is enough for one machine and gives you durable requests, a free audit log and `covey log` queries for nothing.
 
-**Why Python.** The MCP SDK and Textual (for the TUI) are mature, and the daemon's work is IO-bound coordination, not compute. Startup time matters for the shim, so the shim stays dependency-light; `uvx covey` makes installation a single command.
+**Why Python.** The MCP SDK and Textual (for the TUI) are mature, and the daemon's work is IO-bound coordination, not compute. Startup time matters for the shim, so the shim stays dependency-light; `uv tool install covey-mesh` makes installation a single command (`uvx` alone can't work, see "v1 scope").
 
 ## The MCP tool surface
 
@@ -129,7 +129,7 @@ A live session gets the request at its next quiet moment through hooks; an agent
 
 **Registration: the shim registers, the hooks borrow its token.** Claude Code starts the `covey mcp` shim once per session process; the shim registers the agent (slug from the directory name unless `COVEY_AGENT` is set), marks it `live`, heartbeats, and writes its agent token to a 0600 file keyed by the `claude` process (see "How hooks authenticate" below). A `SessionStart` hook calls `covey hook session-start`, which reports the current `session_id` to the daemon with that token and injects one line of context: *"You are agent `api` in the covey. Other agents may ask you for help."* A takeover of an existing slug keeps the previous summary, tags, capabilities and instructions unless the shim sends new ones. `SessionEnd` marks the agent `wakeable` or `gone`, except when its `reason` is `clear`: `/clear` ends one session and starts another inside the same process. `covey init` writes all four hooks and the MCP server entry into `.claude/settings.json` (or the user-level settings) in one command.
 
-**Agents that are not Claude Code** use whichever of these their host supports. OpenClaw and other always-on agents can poll `covey_inbox` on a schedule or register a webhook URL in their card, which the daemon calls on new requests. Python SDK agents get `covey.serve(handler)`, a long-poll loop. Delivery is a property of the card (`delivery: hooks | webhook | poll | spawn`), so the router never needs to know what kind of agent is on the other end.
+**Agents that are not Claude Code** are not woken in v1: only Claude Code has the hook and wake integration. Other MCP clients can call the tools and check `covey_inbox` themselves, and Python SDK agents get `covey.serve(handler)`, a long-poll loop. The card's `delivery` field (`hooks | webhook | poll | spawn`) and `webhook_url` are accepted and stored, but the daemon does not act on `webhook` or `poll`; webhook delivery is v1.1.
 
 **Idempotency and loops.** Each request carries a `hops` count copied from its parent thread; the router refuses to create a request when `hops` exceeds the limit (4 by default; `COVEY_MAX_HOPS` may lower it, 0 to 4), which prevents two agents asking each other in circles. Replies are idempotent on `request_id`.
 
@@ -319,7 +319,7 @@ Keys: `/` filter, `enter` open a request's full transcript, `g` grants view, `l`
 
 ## Repo layout, stack, milestones
 
-**One Python package, `covey`, installable with `uv`, with the daemon, shim, CLI, TUI and SDK all inside it.** A single package keeps `uv tool install covey` a one-liner and avoids version skew between the pieces; the SDK is importable as `covey.sdk` without pulling in Textual.
+**One Python package, imported as `covey` and published on PyPI as `covey-mesh`, installable with `uv`, with the daemon, shim, CLI, TUI and SDK all inside it.** A single package keeps `uv tool install covey-mesh` a one-liner and avoids version skew between the pieces; the SDK is importable as `covey.sdk` without pulling in Textual.
 
 ```text
 covey/
