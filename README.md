@@ -19,6 +19,8 @@ uv tool install covey-mesh && covey init --user
 
 `uvx` alone does not work. The hooks must keep pointing at a `covey` that outlives uv's temporary environment, and `covey init` refuses to run under uvx.
 
+`coveyd` does not start at login. After a reboot (or `wsl --shutdown`), run `covey up` again before you open Claude Code sessions.
+
 To upgrade, run `uv tool upgrade covey-mesh`. If you installed an exact version (`covey-mesh==0.3.0`), uv keeps that pin and upgrades nothing; run `uv tool install covey-mesh@latest` instead. Then run `covey down && covey up` from your own terminal, re-run `covey init --user` (it only adds what is missing), and restart your Claude Code sessions.
 
 Five-minute walkthrough: [docs/quickstart.md](docs/quickstart.md).
